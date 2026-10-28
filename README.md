@@ -1,6 +1,6 @@
 # swbplugin
 
-Capacitor plugin for Wahana applications providing native GPS anti-Fake GPS detection, background location tracking, local history persistence, automatic HTTP position uploads, and native camera/media pickers.
+Capacitor plugin for Wahana applications providing native GPS anti-Fake GPS detection, background location tracking, local history persistence, automatic HTTP position uploads, native camera/media pickers, and Android OTA live updates for the WebView bundle.
 
 Target platforms: **Android** (Kotlin) and **iOS** (Swift), compatible with both **Capacitor 2** and **Capacitor 3+**.
 
@@ -31,10 +31,20 @@ Target platforms: **Android** (Kotlin) and **iOS** (Swift), compatible with both
    - **File Manager Image Picker**: Native SAF (Storage Access Framework) on Android / `UIDocumentPicker` on iOS (1 image per call).
    - **Camera Photo Capture**: Invokes the native system camera app; saves optimized JPEG in cache directory.
    - **Camera Video Recording**: Invokes the native system camera app; saves MP4/MOV in cache directory (path only, no base64).
+6. **OTA Live Update (`SwbUpdater`, Android)**:
+   - Downloads a ZIP bundle of the SPA and swaps it into the Capacitor `WebView` without releasing a new APK.
+   - SHA-256 checksum + size verification, HTTPS-only download, and ZIP path-traversal protection.
+   - Optional auto-update on app start/resume, self-healing back to the built-in bundle, and old bundle cleanup.
 
 ---
 
 ## Installation
+
+### Install from GitHub Release
+
+```bash
+npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/v0.0.1/swbplugin-0.0.1.tgz
+```
 
 ---
 
@@ -404,6 +414,133 @@ Mengembalikan objek diagnosis `LocationStatus`:
 | `USER_CANCELLED` | `takePhoto`, `takeVideo`, `pickImage` | Pengguna membatalkan pengambilan gambar atau video. Solusi: Ambil foto/video dan tekan tombol simpan (centang). |
 | `FILE_NOT_FOUND` / `PROCESS_IMAGE_FAILED` | `takePhoto`, `takeVideo`, `pickImage` | Berkas rusak atau memori internal perangkat penuh. Solusi: Periksa ruang memori dan coba kembali. |
 
+
+## OTA Live Update (SwbUpdater)
+
+`SwbUpdater` memperbarui bundle SPA yang dimuat `WebView` tanpa merilis ulang APK.
+Fitur ini **hanya tersedia di Android**. Di web, `checkForUpdate()` dan `sync()` akan reject,
+sedangkan `getCurrentBundle()` mengembalikan `{ build: 0, version: 'web', source: 'builtin' }`.
+
+Updater otomatis dinonaktifkan saat aplikasi memakai development server (`serverUrl` pada config Capacitor).
+Bundle OTA disimpan di `<filesDir>/swb-ota/bundles/<build>` (staging di `<filesDir>/swb-ota/staging`),
+dan bundle lama yang tidak aktif dibersihkan otomatis.
+
+### Configuration
+
+Tambahkan konfigurasi plugin pada `capacitor.config.json`:
+
+```json
+{
+  "plugins": {
+    "SwbUpdater": {
+      "updateUrl": "https://example.com/ota/manifest.json",
+      "autoUpdate": false,
+      "baseBuild": 1,
+      "baseVersion": "1.0.0",
+      "allowInsecureHttp": false
+    }
+  }
+}
+```
+
+| Key | Default | Keterangan |
+| --- | --- | --- |
+| `updateUrl` | `""` | URL manifest JSON. Wajib untuk `checkForUpdate`/`sync`. |
+| `autoUpdate` | `false` | Jika `true`, cek + unduh + terapkan otomatis sekali per sesi saat app start/resume. |
+| `baseBuild` | `1` | Nomor build bundle bawaan (built-in) di dalam APK. |
+| `baseVersion` | `"1.0.0"` | Versi bundle bawaan. |
+| `allowInsecureHttp` | `false` | Izinkan URL `http://` (default hanya HTTPS). |
+
+### Manifest Format
+
+File manifest yang dilayani `updateUrl`:
+
+```json
+{
+  "build": 2,
+  "version": "1.0.1",
+  "url": "https://example.com/ota/bundle.zip",
+  "checksum": "64_character_lowercase_sha256_hex",
+  "size": 1234567
+}
+```
+
+Aturan validasi:
+
+- `build`: integer positif. Update dianggap tersedia jika `build > build aktif`.
+- `version`: string tidak kosong.
+- `url`: URL bundle ZIP, wajib HTTPS (atau HTTP bila `allowInsecureHttp: true`) dan memiliki host valid.
+- `checksum`: SHA-256 dari file ZIP, 64 karakter heksadesimal.
+- `size`: opsional, ukuran ZIP dalam byte; dipakai untuk memverifikasi hasil unduhan.
+
+ZIP bundle harus memiliki `index.html` di root arsip.
+
+### Usage
+
+```typescript
+import { SwbUpdater } from 'swbplugin';
+
+// Listener status (opsional)
+const handle = await SwbUpdater.addListener('updateStateChanged', (event) => {
+  console.log('State:', event.state, event.message);
+});
+
+// Cek update tanpa mengunduh
+const check = await SwbUpdater.checkForUpdate();
+if (check.available) {
+  console.log(`Build ${check.remoteBuild} tersedia (${check.version}, ${check.size} bytes)`);
+
+  // Unduh, verifikasi, pasang, dan aktifkan bundle
+  const result = await SwbUpdater.sync();
+  console.log('Updated:', result.updated, 'to build', result.toBuild);
+}
+
+// Informasi bundle aktif
+const current = await SwbUpdater.getCurrentBundle();
+console.log(current.build, current.version, current.source); // 'builtin' | 'ota'
+
+// Kembali ke bundle bawaan APK
+await SwbUpdater.resetToBuiltin();
+
+handle.remove();
+```
+
+Contoh pembuatan `bundle.zip` + `manifest.json` (menghitung SHA-256 dan ukuran otomatis)
+ada pada script `web/dev/dcaf/scripts/generate-ota.js` di project SWB:
+
+```bash
+node scripts/generate-ota.js --build 2 --version 1.0.1 --url https://example.com/ota/bundle.zip
+```
+
+### Update States
+
+| State | Keterangan |
+| --- | --- |
+| `checking` | Mengambil dan memvalidasi manifest. |
+| `up-to-date` | Build remote tidak lebih baru dari build aktif. |
+| `available` | Update tersedia. |
+| `downloading` | Mengunduh bundle ZIP. |
+| `verifying` | Memverifikasi checksum dan ukuran. |
+| `installing` | Mengekstrak bundle ke folder staging. |
+| `applying` | Mengaktifkan bundle pada `WebView`. |
+| `applied` | Bundle baru berhasil diterapkan. |
+| `error` | Terjadi kegagalan; lihat `message`. |
+
+### Error Codes
+
+| Error Code | Keterangan |
+| --- | --- |
+| `INVALID_CONFIG` | `updateUrl` kosong/tidak valid atau konfigurasi lain tidak sesuai. |
+| `INSECURE_URL` | URL memakai HTTP padahal `allowInsecureHttp` bernilai `false`. |
+| `DEVELOPMENT_MODE` | Update dipanggil saat aplikasi memakai development server. |
+| `NETWORK_ERROR` | Gagal mengambil manifest atau mengunduh bundle. |
+| `UPDATE_IN_PROGRESS` | `sync()` dipanggil saat proses update lain masih berjalan. |
+| `RESET_FAILED` | Gagal kembali ke bundle bawaan. |
+| `UPDATE_FAILED` | Kegagalan umum saat verifikasi/instalasi/aktivasi. |
+| `CHECK_FAILED` | Kegagalan tak terduga pada `checkForUpdate()`. |
+| `GET_BUNDLE_FAILED` | Gagal membaca informasi bundle aktif. |
+
+---
 
 ## API
 
