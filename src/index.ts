@@ -46,4 +46,6 @@ function createPlugin(): SwbPluginInterface {
 const SwbPlugin = createPlugin();
 
 export * from './definitions';
+export * from './updater/definitions';
 export { SwbPlugin };
+export { SwbUpdater } from './updater/index';
