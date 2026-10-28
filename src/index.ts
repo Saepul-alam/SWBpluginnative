@@ -1,10 +1,5 @@
-import { registerPlugin } from '@capacitor/core';
-
-import type { SwbUpdaterPlugin } from './definitions';
-
-const SwbUpdater = registerPlugin<SwbUpdaterPlugin>('SwbUpdater', {
-  web: () => import('./web').then(m => new m.SwbUpdaterWeb()),
-});
-
 export * from './definitions';
-export { SwbUpdater };
+export * from './updater/definitions';
+
+export { SwbPlugin } from './plugin';
+export { SwbUpdater } from './updater/index';

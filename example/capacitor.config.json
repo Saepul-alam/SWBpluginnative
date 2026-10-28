@@ -5,6 +5,13 @@
   "plugins": {
     "SplashScreen": {
       "launchAutoHide": false
+    },
+    "SwbUpdater": {
+      "updateUrl": "https://example.com/ota/manifest.json",
+      "autoUpdate": false,
+      "baseBuild": 1,
+      "baseVersion": "1.0.0",
+      "allowInsecureHttp": false
     }
   }
 }
