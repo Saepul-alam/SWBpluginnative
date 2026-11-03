@@ -318,6 +318,34 @@ public class SwbNotifPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void registerPush(PluginCall call) {
+        try {
+            SwbNotifPush.register(call, store);
+        } catch (Throwable error) {
+            call.reject(
+                "Firebase Messaging is not available. Add com.google.firebase:firebase-messaging and google-services.json to the app.",
+                ErrorCode.PUSH_UNAVAILABLE.name()
+            );
+        }
+    }
+
+    @PluginMethod
+    public void getPushToken(PluginCall call) {
+        String token = store.getPushToken();
+        call.resolve(new JSObject().put("token", token == null ? JSONObject.NULL : token));
+    }
+
+    @PluginMethod
+    public void unregisterPush(PluginCall call) {
+        try {
+            SwbNotifPush.unregister(call, store);
+        } catch (Throwable error) {
+            store.deletePushToken();
+            call.resolve();
+        }
+    }
+
+    @PluginMethod
     public void getLastAction(PluginCall call) {
         JSONObject action = store.consumeLastAction();
         if (action == null) {
@@ -343,6 +371,12 @@ public class SwbNotifPlugin extends Plugin {
 
     static void emitNotificationActionPerformed(JSONObject event) {
         emit("notificationActionPerformed", event);
+    }
+
+    static void emitPushToken(String token) {
+        JSObject data = new JSObject();
+        data.put("token", token == null ? JSONObject.NULL : token);
+        emit("pushTokenReceived", data);
     }
 
     static void emitNotificationDismissed(int id) {

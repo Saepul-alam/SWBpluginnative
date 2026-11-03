@@ -1,7 +1,7 @@
 {
   "name": "swbnotif",
   "version": "0.0.1",
-  "description": "Local and scheduled notifications for Capacitor applications with zero external dependencies",
+  "description": "Local, scheduled and push notifications for Capacitor applications",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",

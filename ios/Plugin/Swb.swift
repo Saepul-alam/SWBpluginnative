@@ -6,8 +6,10 @@ import UserNotifications
     static let identifierPrefix = "swbnotif-"
     static let userInfoKey = "swbnotif"
     static let lastActionKey = "swbnotif.last_action"
+    static let pushTokenKey = "swbnotif.push_token"
     static let badgeKey = "swbnotif.badge"
     static let actionGroupsKey = "swbnotif.action_groups"
+    static let pushTokenNotification = Notification.Name("SwbNotifPushToken")
 
     public static let maxTitleLength = 256
     public static let maxBodyLength = 4096

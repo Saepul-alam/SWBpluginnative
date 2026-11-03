@@ -18,6 +18,7 @@ final class SwbNotifStore {
     private static final String KEY_DELIVERED = "delivered";
     private static final String KEY_ACTION_GROUPS = "action_groups";
     private static final String KEY_LAST_ACTION = "last_action";
+    private static final String KEY_PUSH_TOKEN = "push_token";
     private static final String KEY_BADGE = "badge";
 
     private final SharedPreferences prefs;
@@ -165,6 +166,18 @@ final class SwbNotifStore {
 
     synchronized void clearLastAction() {
         prefs.edit().remove(KEY_LAST_ACTION).apply();
+    }
+
+    synchronized void setPushToken(String token) {
+        prefs.edit().putString(KEY_PUSH_TOKEN, token).apply();
+    }
+
+    synchronized String getPushToken() {
+        return prefs.getString(KEY_PUSH_TOKEN, null);
+    }
+
+    synchronized void deletePushToken() {
+        prefs.edit().remove(KEY_PUSH_TOKEN).apply();
     }
 
     synchronized void setBadge(int count) {
