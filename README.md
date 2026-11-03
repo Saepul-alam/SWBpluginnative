@@ -19,10 +19,43 @@ Capacitor plugin untuk OTA live update aset web pada aplikasi Capacitor (khusus 
 
 ## Instalasi
 
+### Melalui GitHub Release Tarball (Direkomendasikan)
+
+Instal langsung dari asset rilis tanpa memerlukan akun npm registry:
+
 ```bash
-npm install swbupdater
+npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/v0.0.1/swbupdater-0.0.1.tgz
 npx cap sync
 ```
+
+*Atau menggunakan tag dedicated `swbupdater-v0.0.1`:*
+```bash
+npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/swbupdater-v0.0.1/swbupdater-0.0.1.tgz
+npx cap sync
+```
+
+### Melalui Git Branch
+
+```bash
+npm install https://github.com/Saepul-alam/SWBpluginnative.git#updater
+npx cap sync
+```
+
+### Melalui Tarball Lokal / Direktori
+
+```bash
+# Dari file tarball
+npm install ./path/to/swbupdater-0.0.1.tgz
+npx cap sync
+
+# Dari direktori lokal (monorepo / local development)
+npm install /path/to/swbupdater
+npx cap sync
+```
+
+---
+
+## Import Plugin
 
 Dapat diimpor bersama `SwbPlugin`:
 ```typescript

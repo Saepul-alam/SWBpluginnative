@@ -17,10 +17,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Saepul-alam/CapacitorPluginSWB.git"
+    "url": "git+https://github.com/Saepul-alam/SWBpluginnative.git"
   },
   "bugs": {
-    "url": "https://github.com/Saepul-alam/CapacitorPluginSWB/issues"
+    "url": "https://github.com/Saepul-alam/SWBpluginnative/issues"
   },
   "keywords": [
     "capacitor",
