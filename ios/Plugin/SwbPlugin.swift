@@ -13,18 +13,7 @@ public class SwbNotifPlugin: CAPPlugin, NotificationHandlerProtocol {
 
     override public func load() {
         bridge?.notificationRouter.localNotificationHandler = self
-        bridge?.notificationRouter.pushNotificationHandler = self
         rebuildCategories()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handlePushToken(_:)),
-            name: SwbNotif.pushTokenNotification,
-            object: nil
-        )
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Permission
@@ -273,29 +262,6 @@ public class SwbNotifPlugin: CAPPlugin, NotificationHandlerProtocol {
         call.resolve()
     }
 
-    // MARK: - Push
-
-    @objc func registerPush(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            UIApplication.shared.registerForRemoteNotifications()
-        }
-        let token = defaults.string(forKey: SwbNotif.pushTokenKey)
-        call.resolve(["token": token ?? NSNull()])
-    }
-
-    @objc func getPushToken(_ call: CAPPluginCall) {
-        let token = defaults.string(forKey: SwbNotif.pushTokenKey)
-        call.resolve(["token": token ?? NSNull()])
-    }
-
-    @objc func unregisterPush(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            UIApplication.shared.unregisterForRemoteNotifications()
-        }
-        defaults.removeObject(forKey: SwbNotif.pushTokenKey)
-        call.resolve()
-    }
-
     @objc func getLastAction(_ call: CAPPluginCall) {
         guard let action = defaults.dictionary(forKey: SwbNotif.lastActionKey) else {
             call.resolve()
@@ -460,14 +426,5 @@ public class SwbNotifPlugin: CAPPlugin, NotificationHandlerProtocol {
             intentIdentifiers: [],
             options: []
         )
-    }
-
-    @objc private func handlePushToken(_ notification: Notification) {
-        let token = (notification.object as? String) ?? defaults.string(forKey: SwbNotif.pushTokenKey)
-        guard let token = token else {
-            return
-        }
-        defaults.set(token, forKey: SwbNotif.pushTokenKey)
-        notifyListeners("pushTokenReceived", data: ["token": token])
     }
 }

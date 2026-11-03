@@ -1,8 +1,8 @@
 # swbnotif
 
-Production-grade Capacitor plugin for local, scheduled, and push notifications on Android (API 21–35), iOS (12+), and Web.
+Production-grade Capacitor plugin for local and scheduled notifications on Android (API 21–35), iOS (12+), and Web with zero external dependencies.
 
-Built from the ground up for enterprise resilience: Survives app process death, device reboots, Doze battery optimizations, and timezone changes with strict payload validation and structured error codes.
+Built from the ground up for enterprise resilience: Survives app process death, device reboots, Doze battery optimizations, and timezone changes with strict payload validation, structured error codes, and zero dependency on Firebase or external cloud services.
 
 ---
 
@@ -59,7 +59,6 @@ npx cap sync
 | **Cold-Start Intent Catch**| ✅ (`getLastAction()`) | ✅ (`getLastAction()`) | ✅ (`getLastAction()`) |
 | **Dismiss Event Tracking** | ✅ (`notificationDismissed`) | ✅ (`notificationDismissed`) | ✅ (`onclose` event) |
 | **App Icon Badge** | ✅ (Launcher setNumber) | ✅ (SpringBoard badge) | ✅ (App Badging API) |
-| **Remote Push (FCM / APNs)**| ✅ (FCM data-only) | ✅ (APNs native) | ❌ |
 
 ---
 
@@ -209,65 +208,6 @@ if (coldStartAction) {
 }
 ```
 
-### 7. Push Notifications Setup (FCM & APNs)
-
-```ts
-// Listen for token updates (including rotation)
-SwbNotif.addListener('pushTokenReceived', ({ token }) => {
-  if (token) {
-    sendTokenToBackend(token);
-  }
-});
-
-// Register for push notifications
-const { token } = await SwbNotif.registerPush();
-if (token) {
-  sendTokenToBackend(token);
-}
-
-// Unregister device upon logout
-await SwbNotif.unregisterPush();
-```
-
-#### Native App Setup for Push Notifications
-
-**Android:**
-1. Place `google-services.json` inside your app's `android/app/` folder.
-2. Add Firebase Messaging to `android/app/build.gradle`:
-   ```groovy
-   implementation 'com.google.firebase:firebase-messaging:23.1.2'
-   ```
-3. Send **data-only payloads** from your server so that the plugin intercepts the message via `SwbNotifMessagingService` even when the app is in the background:
-   ```json
-   {
-     "message": {
-       "token": "DEVICE_FCM_TOKEN",
-       "data": {
-         "title": "Paket Tiba",
-         "body": "Paket Anda sudah berada di drop point.",
-         "channelId": "orders",
-         "route": "/orders/detail"
-       }
-     }
-   }
-   ```
-
-**iOS:**
-1. Open the project in Xcode, navigate to **Signing & Capabilities**, and add **Push Notifications** and **Background Modes (Remote notifications)**.
-2. In `ios/App/App/AppDelegate.swift`, forward device tokens to `SwbNotif`:
-   ```swift
-   import UserNotifications
-
-   func application(
-     _ application: UIApplication,
-     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
-   ) {
-     let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-     UserDefaults.standard.set(token, forKey: "swbnotif.push_token")
-     NotificationCenter.default.post(name: Notification.Name("SwbNotifPushToken"), object: token)
-   }
-   ```
-
 ---
 
 ## System Bounds & Payload Limits
@@ -299,7 +239,6 @@ Every native error rejection returns a structured machine-readable error code:
 | `INVALID_SCHEDULE` | Date or schedule interval is invalid or points to the past without repetition. |
 | `INVALID_ARGUMENT` | Payload validation failed (title missing, string length exceeded, extra payload >32KB, duplicate ID). |
 | `NOTIFICATION_NOT_FOUND` | Targeted notification ID not found for update or removal. |
-| `PUSH_UNAVAILABLE` | Firebase Messaging dependency missing or APNs registration failed. |
 | `STORAGE_LIMIT_EXCEEDED` | Attempted to schedule more than 100 notifications concurrently. |
 | `UNKNOWN` | Unclassified native exception. |
 
@@ -318,14 +257,6 @@ Every native error rejection returns a structured machine-readable error code:
 ### 3. Notification sound does not change on Android
 - **Cause:** Android notification channels are immutable once created by the operating system.
 - **Fix:** Changing sound, vibration, or importance requires deleting the channel (`deleteChannel({ id })`) and recreating it, or using a new channel ID.
-
-### 4. Push token returns `null` on iOS
-- **Cause:** Running in an iOS Simulator (APNs does not support simulators prior to iOS 16 with paid developer account) or missing Push Notification entitlement.
-- **Fix:** Test on a physical iOS device and verify that `Push Notifications` is added in Xcode under **Signing & Capabilities**.
-
-### 5. App crashes when receiving FCM Push on Android
-- **Cause:** Consuming app did not add the Firebase Messaging dependency.
-- **Fix:** Add `implementation 'com.google.firebase:firebase-messaging:23.1.2'` in `android/app/build.gradle`.
 
 ---
 
@@ -369,14 +300,10 @@ Every native error rejection returns a structured machine-readable error code:
 * [`getBadgeCount()`](#getbadgecount)
 * [`createActionGroup(...)`](#createactiongroup)
 * [`deleteActionGroup(...)`](#deleteactiongroup)
-* [`registerPush()`](#registerpush)
-* [`getPushToken()`](#getpushtoken)
-* [`unregisterPush()`](#unregisterpush)
 * [`getLastAction()`](#getlastaction)
 * [`clearLastAction()`](#clearlastaction)
 * [`addListener('notificationReceived', ...)`](#addlistenernotificationreceived)
 * [`addListener('notificationActionPerformed', ...)`](#addlistenernotificationactionperformed)
-* [`addListener('pushTokenReceived', ...)`](#addlistenerpushtokenreceived)
 * [`addListener('notificationDismissed', ...)`](#addlistenernotificationdismissed)
 * [`removeAllListeners()`](#removealllisteners)
 * [Interfaces](#interfaces)
@@ -640,43 +567,6 @@ deleteActionGroup(options: { id: string; }) => Promise<void>
 --------------------
 
 
-### registerPush()
-
-```typescript
-registerPush() => Promise<PushToken>
-```
-
-Register for push notifications and resolve with the device token.
-Resolves with `{ token: null }` when the token is not available yet, in
-which case listen for `pushTokenReceived`.
-
-**Returns:** <code>Promise&lt;<a href="#pushtoken">PushToken</a>&gt;</code>
-
---------------------
-
-
-### getPushToken()
-
-```typescript
-getPushToken() => Promise<PushToken>
-```
-
-**Returns:** <code>Promise&lt;<a href="#pushtoken">PushToken</a>&gt;</code>
-
---------------------
-
-
-### unregisterPush()
-
-```typescript
-unregisterPush() => Promise<void>
-```
-
-Unregister device push notification token and tear down remote registration.
-
---------------------
-
-
 ### getLastAction()
 
 ```typescript
@@ -727,22 +617,6 @@ addListener(eventName: 'notificationActionPerformed', listenerFunc: (event: Noti
 | ------------------ | ----------------------------------------------------------------------------------------------- |
 | **`eventName`**    | <code>'notificationActionPerformed'</code>                                                      |
 | **`listenerFunc`** | <code>(event: <a href="#notificationactionevent">NotificationActionEvent</a>) =&gt; void</code> |
-
-**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt; & <a href="#pluginlistenerhandle">PluginListenerHandle</a></code>
-
---------------------
-
-
-### addListener('pushTokenReceived', ...)
-
-```typescript
-addListener(eventName: 'pushTokenReceived', listenerFunc: (event: PushToken) => void) => Promise<PluginListenerHandle> & PluginListenerHandle
-```
-
-| Param              | Type                                                                |
-| ------------------ | ------------------------------------------------------------------- |
-| **`eventName`**    | <code>'pushTokenReceived'</code>                                    |
-| **`listenerFunc`** | <code>(event: <a href="#pushtoken">PushToken</a>) =&gt; void</code> |
 
 **Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt; & <a href="#pluginlistenerhandle">PluginListenerHandle</a></code>
 
@@ -910,13 +784,6 @@ Enables basic storage and retrieval of dates and times.
 | **`destructive`**      | <code>boolean</code> | iOS only. Renders the action with a destructive style.                        |
 | **`input`**            | <code>boolean</code> | iOS only. Shows a text input on the notification (e.g. for quick reply).      |
 | **`inputPlaceholder`** | <code>string</code>  | iOS only. Placeholder for the text input.                                     |
-
-
-#### PushToken
-
-| Prop        | Type                        |
-| ----------- | --------------------------- |
-| **`token`** | <code>string \| null</code> |
 
 
 #### NotificationActionEvent

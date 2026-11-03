@@ -8,7 +8,6 @@ import type {
   NotificationDismissedEvent,
   PendingNotification,
   PermissionStatus,
-  PushToken,
   ScheduleEvery,
   ScheduleOptions,
   SwbNotifPlugin,
@@ -264,18 +263,6 @@ export class SwbNotifWeb extends WebPlugin implements SwbNotifPlugin {
       );
     }
     this.actionGroups.delete(options.id);
-  }
-
-  async registerPush(): Promise<PushToken> {
-    return { token: null };
-  }
-
-  async getPushToken(): Promise<PushToken> {
-    return { token: null };
-  }
-
-  async unregisterPush(): Promise<void> {
-    return;
   }
 
   async getLastAction(): Promise<NotificationActionEvent | null> {

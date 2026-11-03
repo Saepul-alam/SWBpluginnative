@@ -30,7 +30,6 @@ export enum ErrorCode {
   INVALID_SCHEDULE = 'INVALID_SCHEDULE',
   INVALID_ARGUMENT = 'INVALID_ARGUMENT',
   NOTIFICATION_NOT_FOUND = 'NOTIFICATION_NOT_FOUND',
-  PUSH_UNAVAILABLE = 'PUSH_UNAVAILABLE',
   STORAGE_LIMIT_EXCEEDED = 'STORAGE_LIMIT_EXCEEDED',
   UNKNOWN = 'UNKNOWN',
 }
@@ -152,10 +151,6 @@ export interface NotificationDismissedEvent {
   id: number;
 }
 
-export interface PushToken {
-  token: string | null;
-}
-
 export interface SwbNotifPlugin {
   /** Check whether notifications are allowed without prompting the user. */
   checkPermission(): Promise<PermissionStatus>;
@@ -204,16 +199,6 @@ export interface SwbNotifPlugin {
   createActionGroup(options: ActionGroup): Promise<void>;
   deleteActionGroup(options: { id: string }): Promise<void>;
 
-  /**
-   * Register for push notifications and resolve with the device token.
-   * Resolves with `{ token: null }` when the token is not available yet, in
-   * which case listen for `pushTokenReceived`.
-   */
-  registerPush(): Promise<PushToken>;
-  getPushToken(): Promise<PushToken>;
-  /** Unregister device push notification token and tear down remote registration. */
-  unregisterPush(): Promise<void>;
-
   /** The action that launched the app, if any. Cleared once consumed. */
   getLastAction(): Promise<NotificationActionEvent | null>;
   /** Clear any cached cold-start action without consuming it. */
@@ -226,10 +211,6 @@ export interface SwbNotifPlugin {
   addListener(
     eventName: 'notificationActionPerformed',
     listenerFunc: (event: NotificationActionEvent) => void,
-  ): Promise<PluginListenerHandle> & PluginListenerHandle;
-  addListener(
-    eventName: 'pushTokenReceived',
-    listenerFunc: (event: PushToken) => void,
   ): Promise<PluginListenerHandle> & PluginListenerHandle;
   addListener(
     eventName: 'notificationDismissed',

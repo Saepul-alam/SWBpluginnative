@@ -23,9 +23,6 @@ CAP_PLUGIN(SwbNotifPlugin, "SwbNotif",
            CAP_PLUGIN_METHOD(getBadgeCount, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(createActionGroup, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(deleteActionGroup, CAPPluginReturnPromise);
-           CAP_PLUGIN_METHOD(registerPush, CAPPluginReturnPromise);
-           CAP_PLUGIN_METHOD(getPushToken, CAPPluginReturnPromise);
-           CAP_PLUGIN_METHOD(unregisterPush, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(getLastAction, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(clearLastAction, CAPPluginReturnPromise);
 )

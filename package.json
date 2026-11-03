@@ -1,7 +1,7 @@
 {
   "name": "swbnotif",
   "version": "0.0.1",
-  "description": "Local, scheduled and push notifications for Capacitor applications",
+  "description": "Local and scheduled notifications for Capacitor applications with zero external dependencies",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
@@ -17,10 +17,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Saepul-alam/SWBpluginnative.git.git"
+    "url": "git+https://github.com/Saepul-alam/SWBpluginnative.git"
   },
   "bugs": {
-    "url": "https://github.com/Saepul-alam/SWBpluginnative.git/issues"
+    "url": "https://github.com/Saepul-alam/SWBpluginnative/issues"
   },
   "keywords": [
     "capacitor",
