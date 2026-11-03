@@ -1,115 +1,260 @@
 # swbnotif
 
-Capacitor plugin for local, scheduled and push notifications on Android and iOS.
+Production-grade Capacitor plugin for local, scheduled, and push notifications on Android (API 21–35), iOS (12+), and Web.
 
-## Install
+Built from the ground up for enterprise resilience: Survives app process death, device reboots, Doze battery optimizations, and timezone changes with strict payload validation and structured error codes.
+
+---
+
+## Installation
+
+### Via GitHub Release Tarball (Recommended)
+
+Install directly from the published release asset without requiring an npm registry account:
 
 ```bash
-npm install swbnotif
+npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/v0.0.1/swbnotif-0.0.1.tgz
 npx cap sync
 ```
 
-## Usage
+*Or using the dedicated `swbnotif-v0.0.1` tag:*
+```bash
+npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/swbnotif-v0.0.1/swbnotif-0.0.1.tgz
+npx cap sync
+```
+
+### Via Git Branch
+
+```bash
+npm install https://github.com/Saepul-alam/SWBpluginnative.git#notify
+npx cap sync
+```
+
+### Via Local Tarball / Directory
+
+```bash
+# From tarball
+npm install ./path/to/swbnotif-0.0.1.tgz
+npx cap sync
+
+# From local directory (monorepo / local development)
+npm install /path/to/swbnotif
+npx cap sync
+```
+
+---
+
+## Platform Support Matrix
+
+| Feature | Android (API 21–35) | iOS (12+) | Web (Modern Browsers) |
+| :--- | :---: | :---: | :---: |
+| **Instant Local Delivery** | ✅ | ✅ | ✅ (Web Notifications API) |
+| **Exact Alarm Scheduling** | ✅ (`AlarmManager` exact) | ✅ (UNCalendarNotification) | ⚠️ Active tab only |
+| **Reboot Rescheduling** | ✅ (`BOOT_COMPLETED` receiver) | ✅ (System-managed) | ❌ |
+| **Timezone Change Safe** | ✅ (`TIMEZONE_CHANGED` receiver) | ✅ (Timezone-aware components) | ❌ |
+| **Repeating Notifications**| ✅ (`minute`, `hour`, `day`, `week`) | ✅ (`UNTimeIntervalTrigger`) | ⚠️ Active tab only |
+| **Notification Channels** | ✅ (Importance, Sound, Lights, Vibrate) | ℹ️ No-op (Platform N/A) | ℹ️ No-op (Platform N/A) |
+| **Action Buttons** | ✅ (Up to 4 actions) | ✅ (Custom categories) | ❌ |
+| **Inline Quick Reply** | ℹ️ Tapped action event | ✅ (`UNTextInputNotificationAction`) | ❌ |
+| **Cold-Start Intent Catch**| ✅ (`getLastAction()`) | ✅ (`getLastAction()`) | ✅ (`getLastAction()`) |
+| **Dismiss Event Tracking** | ✅ (`notificationDismissed`) | ✅ (`notificationDismissed`) | ✅ (`onclose` event) |
+| **App Icon Badge** | ✅ (Launcher setNumber) | ✅ (SpringBoard badge) | ✅ (App Badging API) |
+| **Remote Push (FCM / APNs)**| ✅ (FCM data-only) | ✅ (APNs native) | ❌ |
+
+---
+
+## Real-World Examples
+
+### 1. Requesting Permissions (Android 13+ & iOS)
 
 ```ts
 import { SwbNotif } from 'swbnotif';
 
+// 1. Check and request notification permissions
 const permission = await SwbNotif.requestPermission();
 if (!permission.granted) {
-  console.warn('Notifications are not allowed');
+  console.warn('Notification permission was denied by the user');
 }
 
-await SwbNotif.createChannel({
-  id: 'reminders',
-  name: 'Reminders',
-  importance: 'high',
-  vibration: true,
-});
-
-const { id } = await SwbNotif.schedule({
-  title: 'Hello',
-  body: 'This one is delivered right away',
-  channelId: 'reminders',
-  extra: { route: '/inbox' },
-  badge: 1,
-});
-
-await SwbNotif.schedule({
-  title: 'Reminder',
-  body: 'Scheduled for tomorrow',
-  channelId: 'reminders',
-  scheduleAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-});
-
-const pending = await SwbNotif.getPending();
-await SwbNotif.cancel({ id });
+// 2. Check and request Exact Alarm permission (Android 12+)
+const exactAlarm = await SwbNotif.checkExactAlarmPermission();
+if (!exactAlarm.granted) {
+  // Opens system settings for user to grant SCHEDULE_EXACT_ALARM
+  await SwbNotif.requestExactAlarmPermission();
+}
 ```
 
-### Notification actions
+### 2. Creating Channels (Android 8+)
+
+Channels allow categorizing notifications with dedicated sound, vibration, and importance levels:
+
+```ts
+await SwbNotif.createChannel({
+  id: 'orders',
+  name: 'Order Updates',
+  description: 'Real-time updates regarding your ongoing orders',
+  importance: 'high',
+  sound: 'order_bell', // raw/order_bell.mp3 in Android res/raw
+  vibration: true,
+  lights: true,
+  lightColor: '#00AAFF',
+  visibility: 'private',
+});
+```
+
+### 3. Immediate Local Notification
+
+```ts
+const { id } = await SwbNotif.schedule({
+  title: 'Pesanan Diterima',
+  body: 'Driver sedang menuju lokasi pengambilan paket.',
+  channelId: 'orders',
+  extra: { orderId: 'TRX-98214', route: '/orders/TRX-98214' },
+  badge: 1,
+});
+```
+
+### 4. Scheduled & Repeating Notifications
+
+```ts
+// Schedule for a specific time tomorrow
+const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+await SwbNotif.schedule({
+  title: 'Pengingat Absensi',
+  body: 'Jangan lupa untuk melakukan absensi pagi.',
+  scheduleAt: tomorrow,
+  every: 'day', // repeats daily
+  count: 5,     // repeats 5 times, omit for indefinite
+});
+
+// Inspect pending notifications
+const { notifications } = await SwbNotif.getPending();
+console.log('Pending alarms:', notifications);
+
+// Cancel a scheduled notification
+await SwbNotif.cancel({ id: 101 });
+```
+
+### 5. Action Buttons & Quick Reply
+
+Define interactive action groups with destructive buttons and text inputs:
 
 ```ts
 await SwbNotif.createActionGroup({
-  id: 'message',
+  id: 'chat_reply',
   actions: [
-    { id: 'reply', title: 'Reply', input: true, inputPlaceholder: 'Type a reply' },
-    { id: 'dismiss', title: 'Dismiss', destructive: true },
+    {
+      id: 'reply',
+      title: 'Balas',
+      input: true,
+      inputPlaceholder: 'Tulis balasan pesan...',
+    },
+    {
+      id: 'mark_read',
+      title: 'Tandai Dibaca',
+    },
+    {
+      id: 'delete',
+      title: 'Hapus',
+      destructive: true,
+    },
   ],
 });
 
 await SwbNotif.schedule({
-  title: 'New message',
-  body: 'Ada pesan baru',
-  actionGroupId: 'message',
+  title: 'Budi Santoso',
+  body: 'Halo, apakah paketnya sudah siap dikirim?',
+  actionGroupId: 'chat_reply',
 });
 ```
 
-### Listening to events
+### 6. Event Listeners, Deep Linking & Cold Start
+
+Handle user taps and dismiss actions across warm, background, and cold start states:
 
 ```ts
+// Notification received in foreground
 SwbNotif.addListener('notificationReceived', notification => {
-  console.log('received', notification);
+  console.log('Delivered:', notification.title, notification.extra);
 });
 
+// User clicked notification or action button
 SwbNotif.addListener('notificationActionPerformed', event => {
-  console.log('action', event.actionId, event.notification.extra, event.inputValue);
-});
+  const { actionId, notification, inputValue } = event;
+  console.log('Action performed:', actionId);
+  
+  if (inputValue) {
+    console.log('User typed quick reply:', inputValue);
+  }
 
-// When the app was launched by tapping a notification before the listener
-// above was registered, the event is kept until it is consumed.
-const lastAction = await SwbNotif.getLastAction();
-```
-
-### Push notifications
-
-```ts
-SwbNotif.addListener('pushTokenReceived', ({ token }) => {
-  if (token) {
-    // Send the token to your backend
+  // Deep Link Navigation
+  if (notification.extra?.route) {
+    router.push(notification.extra.route);
   }
 });
 
-const { token } = await SwbNotif.registerPush();
+// Notification dismissed by user (swiped away)
+SwbNotif.addListener('notificationDismissed', ({ id }) => {
+  console.log('User dismissed notification:', id);
+});
+
+// Cold Start: App launched by tapping notification when app was closed
+const coldStartAction = await SwbNotif.getLastAction();
+if (coldStartAction) {
+  console.log('App opened via notification tap:', coldStartAction);
+  if (coldStartAction.notification.extra?.route) {
+    router.push(coldStartAction.notification.extra.route);
+  }
+}
 ```
 
-Push notifications require extra setup in the consuming app:
+### 7. Push Notifications Setup (FCM & APNs)
 
-**Android**
+```ts
+// Listen for token updates (including rotation)
+SwbNotif.addListener('pushTokenReceived', ({ token }) => {
+  if (token) {
+    sendTokenToBackend(token);
+  }
+});
 
-1. Add Firebase to the app (`google-services.json` + the `com.google.gms.google-services` Gradle plugin).
-2. Add the dependency (the plugin declares it as `compileOnly`):
-   ```gradle
-   implementation platform('com.google.firebase:firebase-bom:32.7.0')
-   implementation 'com.google.firebase:firebase-messaging'
+// Register for push notifications
+const { token } = await SwbNotif.registerPush();
+if (token) {
+  sendTokenToBackend(token);
+}
+
+// Unregister device upon logout
+await SwbNotif.unregisterPush();
+```
+
+#### Native App Setup for Push Notifications
+
+**Android:**
+1. Place `google-services.json` inside your app's `android/app/` folder.
+2. Add Firebase Messaging to `android/app/build.gradle`:
+   ```groovy
+   implementation 'com.google.firebase:firebase-messaging:23.1.2'
    ```
-3. Use data-only messages (`title`, `body`, `channelId`, `sound`, `smallIcon` keys) so that
-   `onMessageReceived` is called and the plugin controls the notification. Notification
-   payloads are displayed by the Firebase SDK and bypass the plugin.
+3. Send **data-only payloads** from your server so that the plugin intercepts the message via `SwbNotifMessagingService` even when the app is in the background:
+   ```json
+   {
+     "message": {
+       "token": "DEVICE_FCM_TOKEN",
+       "data": {
+         "title": "Paket Tiba",
+         "body": "Paket Anda sudah berada di drop point.",
+         "channelId": "orders",
+         "route": "/orders/detail"
+       }
+     }
+   }
+   ```
 
-**iOS**
-
-1. Enable the Push Notifications capability and upload your APNs key in the Apple Developer portal.
-2. Forward the device token from `AppDelegate.swift`:
-
+**iOS:**
+1. Open the project in Xcode, navigate to **Signing & Capabilities**, and add **Push Notifications** and **Background Modes (Remote notifications)**.
+2. In `ios/App/App/AppDelegate.swift`, forward device tokens to `SwbNotif`:
    ```swift
    import UserNotifications
 
@@ -123,76 +268,85 @@ Push notifications require extra setup in the consuming app:
    }
    ```
 
-## Platform notes
+---
 
-- **Android 13+** requires the runtime `POST_NOTIFICATIONS` permission. Call
-  `requestPermission()` before scheduling. The plugin ships with `compileSdkVersion 33` and
-  `targetSdkVersion 33`, so the consuming app must also compile against SDK 33 or newer.
-- **Android 12+** may require the user to allow exact alarms. Use
-  `checkExactAlarmPermission()` / `requestExactAlarmPermission()`. Without it alarms fall back to
-  inexact delivery.
-- **Android channels** are immutable once created. Changing the sound or importance of an existing
-  channel requires deleting and recreating it (or using a new channel id).
-- **Android badge counts** are launcher-specific; they are attached to the notification with
-  `setNumber`. `setBadgeCount` stores the value for `getBadgeCount`.
-- **Scheduled notifications** are restored after a reboot on Android. iOS schedules them with
-  `UNUserNotificationCenter`.
-- **Repeating notifications** on Android respect `scheduleAt` and `count`. On iOS they use a
-  repeating interval trigger, so `scheduleAt` and `count` are ignored.
-- **Web** supports local notifications through the Web Notifications API while the tab is open.
-  Scheduled notifications and push are not supported.
-- The iOS deployment target is 12.0.
+## System Bounds & Payload Limits
 
-## Platform Matrix
+To protect system stability and avoid out-of-memory errors or Intent payload limits, safety thresholds are strictly enforced on all platforms:
 
-| Platform | Supported OS / Versions | Local Notifications | Scheduled Notifications | Push (FCM / APNs) | Action Buttons & Quick Reply | App Badge |
-| -------- | ----------------------- | ------------------- | ----------------------- | ----------------- | ---------------------------- | --------- |
-| Android  | Android 5.0+ (API 21–35)| ✅                   | ✅ (Exact & Inexact)    | ✅ (FCM data)     | ✅                           | ✅        |
-| iOS      | iOS 12.0+               | ✅                   | ✅ (Calendar/Interval)  | ✅ (APNs)         | ✅ (with text input)         | ✅        |
-| Web      | Modern evergreen        | ✅ (Web Notif API)   | ⚠️ Active tab only      | ❌                | ❌                           | ✅ (Badge)|
+| Constraint | Limit | Description |
+| :--- | :---: | :--- |
+| `MAX_TITLE_LENGTH` | **256** chars | Title cannot be empty and cannot exceed 256 characters. |
+| `MAX_BODY_LENGTH` | **4096** chars | Body text maximum length. |
+| `MAX_EXTRA_BYTES` | **32768** bytes (32 KB) | Serialized JSON `extra` dictionary payload size limit. |
+| `MAX_SCHEDULED` | **100** items | Maximum pending scheduled alarms per app. |
+| `MAX_DELIVERED` | **100** items | Retention cap for delivered notifications store (FIFO eviction). |
+| `MAX_ACTIONS_PER_GROUP`| **4** actions | Maximum number of interactive action buttons per group. |
+
+Violations of these bounds reject with structured error code `INVALID_ARGUMENT` or `STORAGE_LIMIT_EXCEEDED`.
+
+---
 
 ## Error Codes
 
-All errors thrown or rejected by native methods provide structured error codes:
+Every native error rejection returns a structured machine-readable error code:
 
-| Error Code | Description |
-| ---------- | ----------- |
-| `PERMISSION_DENIED` | Notification permission has not been granted by user or system. |
-| `EXACT_ALARM_NOT_ALLOWED` | Android 12+ exact alarm scheduling permission (`SCHEDULE_EXACT_ALARM`) was denied. |
-| `CHANNEL_NOT_FOUND` | Specified Android notification channel does not exist. |
-| `INVALID_SCHEDULE` | Date or schedule trigger format is invalid or in the unrepeatable past. |
-| `INVALID_ARGUMENT` | Title missing/empty, exceeding 256 chars, body exceeding 4096 chars, extra payload exceeding 32KB, or duplicate id. |
-| `NOTIFICATION_NOT_FOUND` | Targeted notification id not found for update or removal. |
-| `PUSH_UNAVAILABLE` | Remote push notification service not configured or Firebase dependency missing. |
-| `STORAGE_LIMIT_EXCEEDED` | Exceeded limit of 100 scheduled notifications. |
+| Error Code | Meaning / Cause |
+| :--- | :--- |
+| `PERMISSION_DENIED` | Notification permission was denied or revoked by the user or OS. |
+| `EXACT_ALARM_NOT_ALLOWED` | Android 12+ exact alarm scheduling permission (`SCHEDULE_EXACT_ALARM`) is not allowed. |
+| `CHANNEL_NOT_FOUND` | Notification channel requested does not exist. |
+| `INVALID_SCHEDULE` | Date or schedule interval is invalid or points to the past without repetition. |
+| `INVALID_ARGUMENT` | Payload validation failed (title missing, string length exceeded, extra payload >32KB, duplicate ID). |
+| `NOTIFICATION_NOT_FOUND` | Targeted notification ID not found for update or removal. |
+| `PUSH_UNAVAILABLE` | Firebase Messaging dependency missing or APNs registration failed. |
+| `STORAGE_LIMIT_EXCEEDED` | Attempted to schedule more than 100 notifications concurrently. |
 | `UNKNOWN` | Unclassified native exception. |
 
-## Migration Guide from 0.0.x
+---
 
-`swbnotif` 0.1.0 replaces the legacy echo template with a complete production notification system:
-- Remove calls to `Swb.echo(...)`.
-- Update imports to use `SwbNotif` from `'swbnotif'`.
-- All methods now return structured promises or emit typed events.
-- On Android, replace any custom broadcast receivers with `SwbNotifReceiver`, `SwbNotifBootReceiver`, and `NotificationActionReceiver`.
-- Ensure error handlers inspect `error.code` against the `ErrorCode` enum rather than matching raw error strings.
+## Troubleshooting Guide
+
+### 1. Notifications do not appear on Android 13+
+- **Cause:** Android 13 (API 33) introduced the runtime `POST_NOTIFICATIONS` permission.
+- **Fix:** Ensure you call `await SwbNotif.requestPermission()` before attempting to schedule or post notifications.
+
+### 2. Scheduled alarms are delayed on Android 12+
+- **Cause:** Android 12+ restricts exact alarms to conserve battery.
+- **Fix:** Check `await SwbNotif.checkExactAlarmPermission()`. If false, invoke `await SwbNotif.requestExactAlarmPermission()` to guide the user to System Settings. If exact alarms are not granted, the plugin automatically uses inexact scheduling (`setAndAllowWhileIdle`).
+
+### 3. Notification sound does not change on Android
+- **Cause:** Android notification channels are immutable once created by the operating system.
+- **Fix:** Changing sound, vibration, or importance requires deleting the channel (`deleteChannel({ id })`) and recreating it, or using a new channel ID.
+
+### 4. Push token returns `null` on iOS
+- **Cause:** Running in an iOS Simulator (APNs does not support simulators prior to iOS 16 with paid developer account) or missing Push Notification entitlement.
+- **Fix:** Test on a physical iOS device and verify that `Push Notifications` is added in Xcode under **Signing & Capabilities**.
+
+### 5. App crashes when receiving FCM Push on Android
+- **Cause:** Consuming app did not add the Firebase Messaging dependency.
+- **Fix:** Add `implementation 'com.google.firebase:firebase-messaging:23.1.2'` in `android/app/build.gradle`.
+
+---
 
 ## Security & Privacy
-- **Zero Sensitive Logging:** Notification titles, bodies, and extra dictionaries are never logged to production console logs.
-- **Data Minimization:** Notifications and tokens stored in local persistence (`SharedPreferences` / `UserDefaults`) are strictly retained up to the configured bounds (max 100 scheduled, max 100 delivered) and can be completely wiped via `removeAllDelivered()` and `clearLastAction()`.
-- **Immutable Intents:** All Android `PendingIntent` instances specify `FLAG_IMMUTABLE` and target explicit components.
 
-## Troubleshooting
+- **Data Minimization:** No sensitive user data (PII) is captured or transmitted. Local store items are automatically pruned to 100 entries.
+- **No Console Leaks:** Notification titles, bodies, and payload extras are never output to standard logcat or console logs in production builds.
+- **Intent Boundary Protection:** All Android `PendingIntent` instances use `FLAG_IMMUTABLE` and specify explicit package/class destinations to prevent intent hijacking.
+- **Data Erasure:** Calling `removeAllDelivered()`, `cancelAll()`, and `clearLastAction()` completely purges locally cached notification records and payload states.
 
-- **Android: Notifications do not appear on Android 13+**
-  Check that you called `requestPermission()` and that the user granted notification permissions. Verify that `compileSdkVersion` and `targetSdkVersion` in your app are set to 33 or higher.
-- **Android: Scheduled notifications do not fire exactly on time**
-  On Android 12+ (API 31+), exact alarms require permission. Call `checkExactAlarmPermission()`. If false, call `requestExactAlarmPermission()` to guide the user to system settings.
-- **Android: Alarms lost after phone reboot**
-  Verify `RECEIVE_BOOT_COMPLETED` permission is in your app and that `SwbNotifBootReceiver` is registered in `AndroidManifest.xml`.
-- **iOS: Push token is null**
-  Verify your app has the Push Notifications entitlement enabled in Xcode and that you called `registerPush()`.
+---
 
-## API
+## Deprecation & SemVer Policy
+
+- This plugin strictly follows **Semantic Versioning 2.0.0**.
+- Breaking changes to method signatures, return types, or behavior will only occur in major releases (`X.0.0`) with a minimum 6-month deprecation notice in `CHANGELOG.md`.
+- Legacy 0.0.x APIs (`Swb.echo`) are deprecated and replaced by `SwbNotif`.
+
+---
+
+## API Reference
 
 <docgen-index>
 
