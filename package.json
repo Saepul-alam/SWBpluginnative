@@ -1,7 +1,7 @@
 {
   "name": "swbnotif",
-  "version": "0.0.1",
-  "description": "Capacitor plugin for Wahana applications",
+  "version": "0.1.0",
+  "description": "Local, scheduled and push notifications for Capacitor applications",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
@@ -13,7 +13,7 @@
     "ios/Plugin/",
     "Swbnotif.podspec"
   ],
-  "author": "“al”",
+  "author": "Wahana",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,8 +37,9 @@
     "eslint": "eslint . --ext ts",
     "prettier": "prettier \"**/*.{css,html,ts,js,java}\"",
     "swiftlint": "node-swiftlint",
-    "docgen": "docgen --api SwbPlugin --output-readme README.md --output-json dist/docs.json",
+    "docgen": "docgen --api SwbNotifPlugin --output-readme README.md --output-json dist/docs.json",
     "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.js",
+    "test": "npm run build && node --test test/**/*.test.js",
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
     "prepublishOnly": "npm run build"

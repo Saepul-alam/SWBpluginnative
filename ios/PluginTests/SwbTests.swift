@@ -2,24 +2,73 @@ import XCTest
 @testable import Plugin
 
 class SwbTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+
+    func testIdentifierRoundTrip() {
+        let id = 12345
+        let identifier = SwbNotif.identifier(for: id)
+        XCTAssertEqual(SwbNotif.id(from: identifier), id)
     }
 
-    override func tearDown() {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-        super.tearDown()
+    func testIntervalLookup() {
+        XCTAssertEqual(SwbNotif.interval(for: "minute"), 60)
+        XCTAssertEqual(SwbNotif.interval(for: "hour"), 3600)
+        XCTAssertEqual(SwbNotif.interval(for: "day"), 86400)
+        XCTAssertEqual(SwbNotif.interval(for: "week"), 604800)
+        XCTAssertNil(SwbNotif.interval(for: "year"))
     }
 
-    func testEcho() {
-        // This is an example of a functional test case for a plugin.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+    func testDateParsing() {
+        let milliseconds = 1_700_000_000_000.0
+        XCTAssertEqual(SwbNotif.date(from: milliseconds)?.timeIntervalSince1970, 1_700_000_000)
+        XCTAssertNotNil(SwbNotif.date(from: "1700000000000"))
+        XCTAssertNotNil(SwbNotif.date(from: "2023-11-14T22:13:20Z"))
+    }
 
-        let implementation = Swb()
-        let value = "Hello, World!"
-        let result = implementation.echo(value)
+    func testSanitizeDropsNulls() {
+        let sanitized = SwbNotif.sanitize(["a": "value", "b": NSNull()] as [String: Any])
+        XCTAssertEqual(sanitized["a"] as? String, "value")
+        XCTAssertNil(sanitized["b"])
+    }
 
-        XCTAssertEqual(value, result)
+    func testValidateOptionsSuccess() {
+        let options: [String: Any] = [
+            "title": "Clean Alert",
+            "body": "Alert message body",
+            "extra": ["key": "val"]
+        ]
+        let result = SwbNotif.validate(options: options)
+        XCTAssertTrue(result.isValid)
+        XCTAssertNil(result.error)
+    }
+
+    func testValidateOptionsEmptyTitleThrows() {
+        let options: [String: Any] = ["title": "   "]
+        let result = SwbNotif.validate(options: options)
+        XCTAssertFalse(result.isValid)
+        XCTAssertNotNil(result.error)
+    }
+
+    func testValidateOptionsLongTitleThrows() {
+        let longTitle = String(repeating: "T", count: SwbNotif.maxTitleLength + 5)
+        let options: [String: Any] = ["title": longTitle]
+        let result = SwbNotif.validate(options: options)
+        XCTAssertFalse(result.isValid)
+        XCTAssertNotNil(result.error)
+    }
+
+    func testValidateOptionsLongBodyThrows() {
+        let longBody = String(repeating: "B", count: SwbNotif.maxBodyLength + 10)
+        let options: [String: Any] = ["title": "Valid", "body": longBody]
+        let result = SwbNotif.validate(options: options)
+        XCTAssertFalse(result.isValid)
+        XCTAssertNotNil(result.error)
+    }
+
+    func testValidateOptionsLargeExtraThrows() {
+        let largePayload = String(repeating: "E", count: SwbNotif.maxExtraBytes + 100)
+        let options: [String: Any] = ["title": "Valid", "extra": ["big": largePayload]]
+        let result = SwbNotif.validate(options: options)
+        XCTAssertFalse(result.isValid)
+        XCTAssertNotNil(result.error)
     }
 }

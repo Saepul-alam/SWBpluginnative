@@ -1,10 +1,11 @@
 import { registerPlugin } from '@capacitor/core';
 
-import type { SwbPlugin } from './definitions';
+import type { SwbNotifPlugin } from './definitions';
 
-const Swb = registerPlugin<SwbPlugin>('Swb', {
-  web: () => import('./web').then(m => new m.SwbWeb()),
+const SwbNotif = registerPlugin<SwbNotifPlugin>('SwbNotif', {
+  web: () => import('./web').then(m => new m.SwbNotifWeb()),
 });
 
 export * from './definitions';
-export { Swb };
+export * from './validation';
+export { SwbNotif };

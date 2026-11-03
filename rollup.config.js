@@ -4,7 +4,7 @@ export default {
     {
       file: 'dist/plugin.js',
       format: 'iife',
-      name: 'capacitorSwb',
+      name: 'capacitorSwbNotif',
       globals: {
         '@capacitor/core': 'capacitorExports',
       },
