@@ -19,63 +19,70 @@ Capacitor plugin untuk OTA live update aset web pada aplikasi Capacitor (khusus 
 
 ## Instalasi
 
-### Melalui GitHub Release Tarball (Direkomendasikan)
+### 1. Pasang Package Plugin
 
-Instal langsung dari asset rilis tanpa memerlukan akun npm registry:
-
-```bash
-npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/v0.0.1/swbupdater-0.0.1.tgz
-npx cap sync
-```
-
-*Atau menggunakan tag dedicated `swbupdater-v0.0.1`:*
-```bash
-npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/swbupdater-v0.0.1/swbupdater-0.0.1.tgz
-npx cap sync
-```
-
-### Melalui Git Branch
+Instal langsung dari Git branch `updater`:
 
 ```bash
 npm install https://github.com/Saepul-alam/SWBpluginnative.git#updater
 npx cap sync
 ```
 
-### Melalui Tarball Lokal / Direktori
-
+*(Atau jika menggunakan asset rilis tarball):*
 ```bash
-# Dari file tarball
-npm install ./path/to/swbupdater-0.0.1.tgz
-npx cap sync
-
-# Dari direktori lokal (monorepo / local development)
-npm install /path/to/swbupdater
+npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/swbupdater-v0.0.1/swbupdater-0.0.1.tgz
 npx cap sync
 ```
 
 ---
 
-## Import Plugin
+### 2. Zero-Configuration (Otomatis 100%)
 
-Dapat diimpor bersama `SwbPlugin`:
+Plugin ini dilengkapi **Zero-Configuration Auto-Installer (`postinstall.js`)**. Begitu Anda menjalankan `npm install`:
+- ✅ **Script CLI Rilis Otomatis Masuk** ke `package.json` proyek: Anda langsung memiliki perintah `npm run ota`, `npm run ota:build`, `npm run ota:status`, dan `npm run ota:rollback`.
+- ✅ **File Boot Quasar Otomatis Dibuat**: Jika proyek Anda menggunakan Quasar, file `src/boot/updater.js` otomatis dibuat dengan template dialog update dan helper `$feature`.
+- ✅ **Otomatis Terdaftar di `quasar.conf.js`**: `boot: ['updater']` otomatis ditambahkan ke array jika belum ada.
+- ✅ **Default Server Siap Pakai**: Tanpa konfigurasi apa pun di `capacitor.config.json`, plugin otomatis menggunakan server produksi default: `https://swb-rc.wahana.com/ota/manifest.json`.
+- ✅ **Native Android Terhubung Otomatis**: Capacitor 3 otomatis menyambungkan kode Kotlin tanpa perlu membuka Android Studio.
+
+---
+
+## Cara Import & Pemakaian Cepat
+
+Di file Vue / JavaScript mana pun:
+
 ```typescript
-import { SwbPlugin, SwbUpdater } from 'swbupdater';
+import { SwbUpdater } from 'swbupdater';
+
+// 1. Cek update manual
+const update = await SwbUpdater.checkForUpdate();
+if (update.available) {
+  await SwbUpdater.sync(); // Download, verifikasi, dan reload otomatis
+}
+
+// 2. Cek saklar fitur kurir (Feature Flag)
+const qris = await SwbUpdater.hasFeature({ name: 'payment.qris' });
+if (qris.enabled) {
+  console.log('Fitur QRIS aktif untuk kurir ini!');
+}
+```
+
+Di template Quasar Vue (sudah terdaftar helper global `$feature`):
+```html
+<q-btn v-if="$feature('payment.qris')" label="Bayar via QRIS" color="positive" />
 ```
 
 ---
 
-## Konfigurasi Capacitor
+## Konfigurasi Opsional (`capacitor.config.json`)
 
-Tambahkan blok konfigurasi `SwbUpdater` di dalam `capacitor.config.json`:
+Konfigurasi ini sifatnya **opsional** (hanya jika Anda ingin mengubah endpoint URL ke server custom di luar default):
 
 ```json
 {
-  "appId": "com.wahana.app",
-  "appName": "WahanaApp",
-  "webDir": "dist",
   "plugins": {
     "SwbUpdater": {
-      "updateUrl": "https://domain.com/ota/manifest.json",
+      "updateUrl": "https://swb.wahana.com/ota/manifest.json",
       "autoUpdate": false,
       "baseBuild": 1,
       "baseVersion": "1.0.0",
