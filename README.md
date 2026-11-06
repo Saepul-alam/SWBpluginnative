@@ -44,6 +44,17 @@ npx cap sync
 
 ---
 
+### Zero-Configuration (Plug-and-Play)
+
+Untuk Notifikasi Lokal & Terjadwal, **tidak memerlukan konfigurasi manual apa pun**:
+- ✅ **Perizinan Otomatis**: Izin Android 13/14 (`POST_NOTIFICATIONS`), alarm presisi (`SCHEDULE_EXACT_ALARM`), dan getar otomatis di-*merge* ke AndroidManifest.
+- ✅ **Tahan Reboot**: Receiver saat HP mati/restart otomatis aktif untuk memulihkan jadwal notifikasi kurir.
+- ✅ **Auto-Link Capacitor 3**: Otomatis terhubung tanpa perlu buka Android Studio.
+
+*(Opsional): Jika ingin menggunakan Push Notification jarak jauh dari server via Firebase (FCM), cukup letakkan file `google-services.json` ke dalam folder `android/app/`.*
+
+---
+
 ## Platform Support Matrix
 
 | Feature | Android (API 21–35) | iOS (12+) | Web (Modern Browsers) |
