@@ -39,7 +39,7 @@ if (res.isMock) {
 }
 ```
 
-### 2. Jalankan Background Tracking Lokasi Kurir
+### 2. Jalankan Background Tracking Lokasi
 ```javascript
 import { SwbPlugin } from 'swbplugin'
 
@@ -65,9 +65,9 @@ console.log('Path foto:', photo.path)
 
 ## Fix Error & Troubleshooting
 
-### 1. Lokasi kurir tidak terkirim saat aplikasi di-minimize
-- Pastikan izin "Allow all the time" (Izinkan sepanjang waktu) sudah diberikan pada menu Pengaturan HP kurir.
-- Pastikan HP kurir tidak membatasi battery saver (Doze mode) untuk aplikasi Wahana.
+### 1. Lokasi tidak terkirim saat aplikasi di-minimize
+- Pastikan izin "Allow all the time" (Izinkan sepanjang waktu) sudah diberikan pada menu Pengaturan HP pengguna.
+- Pastikan HP tidak membatasi battery saver (Doze mode) untuk aplikasi Wahana.
 
 ### 2. Error Fake GPS terus muncul padahal tidak pakai Fake GPS
 - Buka Opsi Pengembang (Developer Options) di HP Android.
