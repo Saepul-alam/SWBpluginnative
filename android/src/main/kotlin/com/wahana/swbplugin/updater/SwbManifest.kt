@@ -10,7 +10,8 @@ data class SwbManifest(
     val version: String,
     val url: String,
     val checksum: String,
-    val size: Long? = null
+    val size: Long? = null,
+    val features: JSONObject? = null
 ) {
     companion object {
         private val SHA256_HEX_REGEX = Regex("^[0-9a-fA-F]{64}$")
@@ -133,12 +134,19 @@ data class SwbManifest(
                 }
             }
 
+            // 6. Ekstrak features (opsional)
+            var features: JSONObject? = null
+            if (json.has("features") && !json.isNull("features")) {
+                features = json.optJSONObject("features")
+            }
+
             return SwbManifest(
                 build = build,
                 version = version,
                 url = urlStr,
                 checksum = normalizedChecksum,
-                size = size
+                size = size,
+                features = features
             )
         }
 

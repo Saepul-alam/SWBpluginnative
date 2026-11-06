@@ -174,22 +174,113 @@ class SwbUpdaterPlugin : Plugin() {
         )
     }
 
+    @PluginMethod
+    fun setUserContext(call: PluginCall) {
+        val userId = call.getString("userId")
+        val branch = call.getString("branch")
+        val role = call.getString("role")
+        stateStore.setUserContext(UserContext(userId = userId, branch = branch, role = role))
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun getUserContext(call: PluginCall) {
+        val ctx = stateStore.getUserContext()
+        val ret = JSObject().apply {
+            put("userId", ctx.userId)
+            put("branch", ctx.branch)
+            put("role", ctx.role)
+        }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun hasFeature(call: PluginCall) {
+        val name = call.getString("name", "") ?: ""
+        if (name.isBlank()) {
+            call.reject("Nama fitur ('name') wajib diisi.", "INVALID_ARGUMENT")
+            return
+        }
+        val enabled = manager.featureManager.isFeatureEnabled(name)
+        val ret = JSObject().apply {
+            put("name", name)
+            put("enabled", enabled)
+        }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun getFeatures(call: PluginCall) {
+        val features = manager.featureManager.getAllFeatures()
+        val ret = JSObject()
+        for ((key, value) in features) {
+            ret.put(key, value)
+        }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun syncFeatures(call: PluginCall) {
+        val config = readPluginConfig()
+        Thread {
+            try {
+                val features = manager.syncFeatures(config)
+                val ret = JSObject()
+                for ((key, value) in features) {
+                    ret.put(key, value)
+                }
+                mainHandler.post { call.resolve(ret) }
+            } catch (e: Throwable) {
+                val ex = if (e is Exception) e else Exception(e)
+                mainHandler.post { call.reject(e.message ?: "Gagal sinkronisasi fitur", "SYNC_ERROR", ex) }
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun reportError(call: PluginCall) {
+        val config = readPluginConfig()
+        val feature = call.getString("feature")
+        val error = call.getString("error", "Unknown error") ?: "Unknown error"
+        val metadataObj = call.getObject("metadata")
+        val metadataMap = mutableMapOf<String, Any?>()
+        if (metadataObj != null) {
+            val keys = metadataObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                metadataMap[k] = metadataObj.get(k)
+            }
+        }
+        manager.reportError(config, feature, error, metadataMap)
+        val ret = JSObject().apply {
+            put("reported", true)
+        }
+        call.resolve(ret)
+    }
+
     // --- PRIVATE HELPERS ---
+
+    companion object {
+        const val DEFAULT_UPDATE_URL = "https://swb-rc.wahana.com/ota/manifest.json"
+    }
 
     private fun readPluginConfig(): SwbUpdaterConfig {
         val pluginConfig = config
-        val updateUrl = pluginConfig.getString("updateUrl", "") ?: ""
+        val rawUrl = pluginConfig.getString("updateUrl", "") ?: ""
+        val updateUrl = if (rawUrl.isNotBlank()) rawUrl.trim() else DEFAULT_UPDATE_URL
         val autoUpdate = pluginConfig.getBoolean("autoUpdate", false)
         val baseBuild = pluginConfig.getInt("baseBuild", 1)
         val baseVersion = pluginConfig.getString("baseVersion", "1.0.0") ?: "1.0.0"
         val allowInsecureHttp = pluginConfig.getBoolean("allowInsecureHttp", false)
+        val telemetryUrl = pluginConfig.getString("telemetryUrl", null)
 
         return SwbUpdaterConfig(
             updateUrl = updateUrl,
             autoUpdate = autoUpdate,
             baseBuild = baseBuild,
             baseVersion = baseVersion,
-            allowInsecureHttp = allowInsecureHttp
+            allowInsecureHttp = allowInsecureHttp,
+            telemetryUrl = telemetryUrl
         )
     }
 

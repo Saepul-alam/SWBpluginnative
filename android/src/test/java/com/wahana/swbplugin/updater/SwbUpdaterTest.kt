@@ -557,6 +557,138 @@ class SwbUpdaterTest {
         assertFalse(stagingDir.exists())
     }
 
+    // --- FEATURE MANAGEMENT TESTS ---
+
+    @Test
+    fun testManifestWithFeaturesParsing() {
+        val json = """
+            {
+              "build": 2,
+              "version": "1.0.1",
+              "url": "https://example.com/ota/bundle.zip",
+              "checksum": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              "features": {
+                "payment.qris": {
+                  "enabled": true,
+                  "users": ["1024", "1025"],
+                  "branches": ["HUB-JKT"]
+                },
+                "delivery.batch_scan": true,
+                "courier.map": false
+              }
+            }
+        """.trimIndent()
+
+        val manifest = SwbManifest.parseAndValidate(json)
+        assertNotNull(manifest.features)
+        assertTrue(manifest.features!!.has("payment.qris"))
+        assertTrue(manifest.features!!.getBoolean("delivery.batch_scan"))
+        assertFalse(manifest.features!!.getBoolean("courier.map"))
+    }
+
+    @Test
+    fun testFeatureManagerBasicAndKillSwitch() {
+        val stateStore = FakeStateStore()
+        val featureManager = SwbFeatureManager(stateStore)
+
+        // Features belum ada di store -> false
+        assertFalse(featureManager.isFeatureEnabled("payment.qris"))
+
+        stateStore.setFeaturesJson("""
+            {
+              "simple_feature": true,
+              "disabled_feature": false,
+              "qris": {
+                "enabled": false,
+                "users": ["1024"]
+              }
+            }
+        """.trimIndent())
+
+        assertTrue(featureManager.isFeatureEnabled("simple_feature"))
+        assertFalse(featureManager.isFeatureEnabled("disabled_feature"))
+        // Kill-switch (enabled = false) mengabaikan whitelist
+        assertFalse(featureManager.isFeatureEnabled("qris", UserContext(userId = "1024")))
+    }
+
+    @Test
+    fun testFeatureManagerTargetingUsersAndBranches() {
+        val stateStore = FakeStateStore()
+        val featureManager = SwbFeatureManager(stateStore)
+
+        stateStore.setFeaturesJson("""
+            {
+              "qris": {
+                "enabled": true,
+                "users": ["1024", "1025"],
+                "branches": ["HUB-JKT"]
+              }
+            }
+        """.trimIndent())
+
+        // Kurir cocok ID dan cabang -> true
+        val courierA = UserContext(userId = "1024", branch = "HUB-JKT")
+        assertTrue(featureManager.isFeatureEnabled("qris", courierA))
+
+        // Kurir beda ID -> false
+        val courierB = UserContext(userId = "9999", branch = "HUB-JKT")
+        assertFalse(featureManager.isFeatureEnabled("qris", courierB))
+
+        // Kurir ID cocok tapi cabang beda -> false
+        val courierC = UserContext(userId = "1024", branch = "HUB-BDG")
+        assertFalse(featureManager.isFeatureEnabled("qris", courierC))
+
+        // Kurir tanpa konteks -> false
+        assertFalse(featureManager.isFeatureEnabled("qris", UserContext()))
+    }
+
+    @Test
+    fun testFeatureManagerScheduledRelease() {
+        val stateStore = FakeStateStore()
+        val featureManager = SwbFeatureManager(stateStore)
+
+        // Tanggal masa depan (belum rilis) -> false
+        stateStore.setFeaturesJson("""
+            {
+              "future_feature": {
+                "enabled": true,
+                "releaseDate": "2099-01-01T00:00:00Z"
+              },
+              "past_feature": {
+                "enabled": true,
+                "releaseDate": "2020-01-01T00:00:00Z"
+              }
+            }
+        """.trimIndent())
+
+        assertFalse(featureManager.isFeatureEnabled("future_feature"))
+        assertTrue(featureManager.isFeatureEnabled("past_feature"))
+    }
+
+    @Test
+    fun testFeatureManagerGetAllFeatures() {
+        val stateStore = FakeStateStore()
+        val featureManager = SwbFeatureManager(stateStore)
+
+        stateStore.setUserContext(UserContext(userId = "1024", branch = "HUB-JKT"))
+        stateStore.setFeaturesJson("""
+            {
+              "feat_a": true,
+              "feat_b": false,
+              "feat_c": {
+                "enabled": true,
+                "users": ["1024"]
+              }
+            }
+        """.trimIndent())
+
+        val all = featureManager.getAllFeatures()
+        assertEquals(3, all.size)
+        assertEquals(true, all["feat_a"])
+        assertEquals(false, all["feat_b"])
+        assertEquals(true, all["feat_c"])
+    }
+
     // --- HELPER: In-Memory ZIP Creator ---
 
     private fun createZipBytes(entries: Map<String, ByteArray>): ByteArray {
@@ -601,6 +733,14 @@ class FakeStateStore : SwbUpdateStateStore {
         internalActiveBundle = BundleState(defaultBuild, defaultVersion, "public", BundleSource.BUILTIN)
         internalPendingUpdate = null
     }
+
+    private var internalUserContext: UserContext = UserContext()
+    private var internalFeaturesJson: String? = null
+
+    override fun getUserContext(): UserContext = internalUserContext
+    override fun setUserContext(context: UserContext) { internalUserContext = context }
+    override fun getFeaturesJson(): String? = internalFeaturesJson
+    override fun setFeaturesJson(featuresJson: String?) { internalFeaturesJson = featuresJson }
 }
 
 class FakeActivator : BundleActivator {

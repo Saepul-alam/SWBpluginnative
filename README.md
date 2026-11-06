@@ -223,6 +223,12 @@ Listener menerima event status berikut secara berurutan:
 * [`sync()`](#sync)
 * [`getCurrentBundle()`](#getcurrentbundle)
 * [`resetToBuiltin()`](#resettobuiltin)
+* [`setUserContext(...)`](#setusercontext)
+* [`getUserContext()`](#getusercontext)
+* [`hasFeature(...)`](#hasfeature)
+* [`getFeatures()`](#getfeatures)
+* [`syncFeatures()`](#syncfeatures)
+* [`reportError(...)`](#reporterror)
 * [`addListener('updateStateChanged', ...)`](#addlistenerupdatestatechanged)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
@@ -270,6 +276,82 @@ getCurrentBundle() => Promise<BundleInfo>
 ```typescript
 resetToBuiltin() => Promise<void>
 ```
+
+--------------------
+
+
+### setUserContext(...)
+
+```typescript
+setUserContext(context: UserContext) => Promise<void>
+```
+
+| Param         | Type                                                |
+| ------------- | --------------------------------------------------- |
+| **`context`** | <code><a href="#usercontext">UserContext</a></code> |
+
+--------------------
+
+
+### getUserContext()
+
+```typescript
+getUserContext() => Promise<UserContext>
+```
+
+**Returns:** <code>Promise&lt;<a href="#usercontext">UserContext</a>&gt;</code>
+
+--------------------
+
+
+### hasFeature(...)
+
+```typescript
+hasFeature(options: { name: string; }) => Promise<FeatureCheckResult>
+```
+
+| Param         | Type                           |
+| ------------- | ------------------------------ |
+| **`options`** | <code>{ name: string; }</code> |
+
+**Returns:** <code>Promise&lt;<a href="#featurecheckresult">FeatureCheckResult</a>&gt;</code>
+
+--------------------
+
+
+### getFeatures()
+
+```typescript
+getFeatures() => Promise<Record<string, boolean>>
+```
+
+**Returns:** <code>Promise&lt;<a href="#record">Record</a>&lt;string, boolean&gt;&gt;</code>
+
+--------------------
+
+
+### syncFeatures()
+
+```typescript
+syncFeatures() => Promise<Record<string, boolean>>
+```
+
+**Returns:** <code>Promise&lt;<a href="#record">Record</a>&lt;string, boolean&gt;&gt;</code>
+
+--------------------
+
+
+### reportError(...)
+
+```typescript
+reportError(options: ErrorReportOptions) => Promise<{ reported: boolean; }>
+```
+
+| Param         | Type                                                              |
+| ------------- | ----------------------------------------------------------------- |
+| **`options`** | <code><a href="#errorreportoptions">ErrorReportOptions</a></code> |
+
+**Returns:** <code>Promise&lt;{ reported: boolean; }&gt;</code>
 
 --------------------
 
@@ -324,6 +406,32 @@ addListener(eventName: 'updateStateChanged', listenerFunc: (event: UpdateStateEv
 | **`path`**    | <code>string</code>             |
 
 
+#### UserContext
+
+| Prop         | Type                |
+| ------------ | ------------------- |
+| **`userId`** | <code>string</code> |
+| **`branch`** | <code>string</code> |
+| **`role`**   | <code>string</code> |
+
+
+#### FeatureCheckResult
+
+| Prop          | Type                 |
+| ------------- | -------------------- |
+| **`name`**    | <code>string</code>  |
+| **`enabled`** | <code>boolean</code> |
+
+
+#### ErrorReportOptions
+
+| Prop           | Type                                                         |
+| -------------- | ------------------------------------------------------------ |
+| **`feature`**  | <code>string</code>                                          |
+| **`error`**    | <code>string</code>                                          |
+| **`metadata`** | <code><a href="#record">Record</a>&lt;string, any&gt;</code> |
+
+
 #### PluginListenerHandle
 
 | Prop         | Type                                      |
@@ -342,6 +450,13 @@ addListener(eventName: 'updateStateChanged', listenerFunc: (event: UpdateStateEv
 
 
 ### Type Aliases
+
+
+#### Record
+
+Construct a type with a set of properties K of type T
+
+<code>{ [P in K]: T; }</code>
 
 
 #### UpdateState
