@@ -47,8 +47,8 @@ await SwbNotif.schedule({
   notifications: [
     {
       id: 1,
-      title: 'Tugas Pengantaran Baru',
-      body: 'Ada 5 paket baru yang harus diantar sekarang.',
+      title: 'Pemberitahuan Baru',
+      body: 'Ada informasi penting untuk Anda.',
       schedule: { at: new Date(Date.now() + 1000 * 5) } // muncul 5 detik lagi
     }
   ]
@@ -64,7 +64,7 @@ Jika ingin menerima Push Notification jarak jauh dari server via Google Firebase
 2. Letakkan file tersebut di folder:
    `/opt/pm/apps/swb/web/dev/dcaf/src-capacitor/android/app/google-services.json`
 
-*(Jika hanya untuk notifikasi lokal di HP kurir, langkah ini tidak diperlukan).*
+*(Jika hanya untuk notifikasi lokal, langkah ini tidak diperlukan).*
 
 ---
 
