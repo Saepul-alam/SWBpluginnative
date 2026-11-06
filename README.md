@@ -1,178 +1,122 @@
-# swbupdater
+# Dokumentasi Plugin SwbUpdater (Live Update & Feature Management)
 
-Capacitor plugin untuk OTA live update aset web pada aplikasi Capacitor (khusus Android).
-
-## Fitur Utama
-
-- **Live Update Web Assets (OTA)**: Unduh, verifikasi, dan pasang pembaruan aset web secara langsung tanpa rilis ulang APK/AAB di Google Play Store.
-- **Keamanan Ketat**:
-  - Validasi SHA-256 checksum secara streaming sebelum ekstraksi.
-  - Proteksi Zip-Slip (path traversal).
-  - Validasi wajib file `index.html` pada root bundle ZIP.
-  - Batas ukuran ekstraksi dan batas jumlah file entry ZIP.
-  - Enforce protokol HTTPS (menolak redirect downgrade HTTPS ke HTTP).
-- **Self-Healing State**: Penanganan otomatis jika WebView Capacitor membersihkan `serverBasePath` saat native update.
-- **Non-blocking Startup**: Pemeriksaan dan pengunduhan dijalankan di background thread tanpa menahan rendering awal aplikasi.
-- **Race Condition Guard**: Penyelesaian Promise sebelum penjadwalan reload WebView untuk mencegah hanging Promise.
+Plugin Capacitor Android untuk Live Update (OTA) aset web dan manajemen saklar fitur (Feature Flags) aplikasi Wahana.
 
 ---
 
-## Instalasi
+## Cara Instalasi di Project
 
-### 1. Pasang Package Plugin
+### 1. Masuk ke folder project
+Masuk ke root directory aplikasi Anda:
+```bash
+cd /opt/pm/apps/swb/web/dev/dcaf
+```
 
-Instal langsung dari Git branch `updater`:
-
+### 2. Install Plugin
+Jalankan command install langsung dari Git:
 ```bash
 npm install https://github.com/Saepul-alam/SWBpluginnative.git#updater
-npx cap sync
 ```
+*Plugin ini sudah zero-configuration (auto-setup). Script `ota`, boot file `src/boot/updater.js`, dan konfigurasi `quasar.conf.js` otomatis dibuatkan.*
 
-*(Atau jika menggunakan asset rilis tarball):*
+### 3. Sinkronkan ke Android
+Jalankan command sinkronisasi Capacitor:
 ```bash
-npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/swbupdater-v0.0.1/swbupdater-0.0.1.tgz
-npx cap sync
+npx cap sync android
 ```
 
 ---
 
-### 2. Zero-Configuration (Otomatis 100%)
+## Cara Pakai di Kodingan
 
-Plugin ini dilengkapi **Zero-Configuration Auto-Installer (`postinstall.js`)**. Begitu Anda menjalankan `npm install`:
-- ✅ **Script CLI Rilis Otomatis Masuk** ke `package.json` proyek: Anda langsung memiliki perintah `npm run ota`, `npm run ota:build`, `npm run ota:status`, dan `npm run ota:rollback`.
-- ✅ **File Boot Quasar Otomatis Dibuat**: Jika proyek Anda menggunakan Quasar, file `src/boot/updater.js` otomatis dibuat dengan template dialog update dan helper `$feature`.
-- ✅ **Otomatis Terdaftar di `quasar.conf.js`**: `boot: ['updater']` otomatis ditambahkan ke array jika belum ada.
-- ✅ **Default Server Siap Pakai**: Tanpa konfigurasi apa pun di `capacitor.config.json`, plugin otomatis menggunakan server produksi default: `https://swb-rc.wahana.com/ota/manifest.json`.
-- ✅ **Native Android Terhubung Otomatis**: Capacitor 3 otomatis menyambungkan kode Kotlin tanpa perlu membuka Android Studio.
+### 1. Cek Update Otomatis saat Buka Aplikasi
+File `src/boot/updater.js` sudah otomatis dibuat dan didaftarkan di `quasar.conf.js`. Saat kurir membuka aplikasi, pop-up pembaruan akan otomatis muncul jika ada build baru.
 
----
-
-## Cara Import & Pemakaian Cepat
-
-Di file Vue / JavaScript mana pun:
-
-```typescript
-import { SwbUpdater } from 'swbupdater';
-
-// 1. Cek update manual
-const update = await SwbUpdater.checkForUpdate();
-if (update.available) {
-  await SwbUpdater.sync(); // Download, verifikasi, dan reload otomatis
-}
-
-// 2. Cek saklar fitur kurir (Feature Flag)
-const qris = await SwbUpdater.hasFeature({ name: 'payment.qris' });
-if (qris.enabled) {
-  console.log('Fitur QRIS aktif untuk kurir ini!');
-}
-```
-
-Di template Quasar Vue (sudah terdaftar helper global `$feature`):
+### 2. Memakai Saklar Fitur (Feature Flag) di Vue
+Di file `.vue` mana pun, cukup gunakan helper `$feature`:
 ```html
-<q-btn v-if="$feature('payment.qris')" label="Bayar via QRIS" color="positive" />
+<!-- Tombol hanya muncul jika fitur aktif untuk kurir tersebut -->
+<q-btn v-if="$feature('payment.qris')" label="Bayar QRIS" color="positive" icon="qr_code" />
+```
+
+### 3. Mengirim Data Kurir saat Login
+Di halaman login kurir (misal `Login.vue`), panggil fungsi ini saat kurir berhasil login agar plugin tahu cabang dan ID kurirnya:
+```javascript
+import { setUserContext } from 'src/boot/updater'
+
+await setUserContext({
+  userId: '1024',
+  branch: 'HUB-JKT'
+})
 ```
 
 ---
 
-## Konfigurasi Opsional (`capacitor.config.json`)
+## Langkah Build & Rilis OTA (SOP Rilis)
 
-Konfigurasi ini sifatnya **opsional** (hanya jika Anda ingin mengubah endpoint URL ke server custom di luar default):
+Setiap selesai koding fitur baru di web dan ingin merilis ke aplikasi tanpa perlu membuat file APK baru:
 
+### 1. Jalankan Command Build
+Di terminal folder project aplikasi, jalankan:
+```bash
+npm run ota:build
+```
+*Script otomatis meng-compile Quasar web, membuat `dist/ota/bundle.zip`, menghitung checksum SHA-256, dan memperbarui `manifest.json`.*
+
+### 2. Upload Hasil Build ke Server
+File hasil build ada di folder `dist/ota`. Upload kedua file ini ke direktori server Nginx:
+- `dist/ota/bundle.zip`    -> `https://swb-rc.wahana.com/ota/bundle.zip`
+- `dist/ota/manifest.json` -> `https://swb-rc.wahana.com/ota/manifest.json`
+
+Selesai! Seluruh kurir yang membuka aplikasi akan langsung menerima update.
+
+---
+
+## Manajemen Fitur via CLI (Feature Flags)
+
+Jalankan perintah berikut di terminal project:
+
+### 1. Buka Menu Interaktif (Wizard)
+```bash
+npm run ota
+```
+
+### 2. Cek Status Build & Daftar Fitur
+```bash
+npm run ota status
+```
+
+### 3. Buka Fitur Khusus Kurir Tertentu (Uji Coba / Pilot)
+```bash
+node scripts/ota-cli.js feature:set payment.qris --enable --users 1024,1025 --branch HUB-JKT
+```
+
+### 4. Jadwalkan Rilis di Tanggal Tertentu
+```bash
+node scripts/ota-cli.js feature:set delivery.batch_scan --enable --date "2026-11-20 08:00"
+```
+
+### 5. Matikan Fitur Seketika (Emergency Kill-Switch jika Backend Down)
+```bash
+node scripts/ota-cli.js feature:disable payment.qris
+```
+
+### 6. Emergency Rollback Versi Aplikasi
+```bash
+npm run ota:rollback
+```
+
+---
+
+## Ubah Konfigurasi Server (Opsional)
+
+Jika server produksi berbeda dengan default (`swb-rc.wahana.com`), sesuaikan file `src-capacitor/capacitor.config.json`:
 ```json
 {
   "plugins": {
     "SwbUpdater": {
       "updateUrl": "https://swb.wahana.com/ota/manifest.json",
-      "autoUpdate": false,
-      "baseBuild": 1,
-      "baseVersion": "1.0.0",
-      "allowInsecureHttp": false
-    }
-  }
-}
-```
-
-### Opsi Konfigurasi:
-| Properti | Tipe | Default | Keterangan |
-| :--- | :--- | :--- | :--- |
-| `updateUrl` | `string` | `""` | URL absolut endpoint JSON manifest pembaruan. |
-| `autoUpdate` | `boolean` | `false` | Jalankan sinkronisasi pembaruan otomatis pada `handleOnStart` / `handleOnResume`. |
-| `baseBuild` | `number` | `1` | Nomor build aset bawaan APK. Naikkan nilai ini setiap merilis native APK baru. |
-| `baseVersion` | `string` | `"1.0.0"` | String versi aset bawaan APK. |
-| `allowInsecureHttp` | `boolean` | `false` | Izinkan URL HTTP non-HTTPS (HANYA untuk lingkungan pengujian/development lokal). |
-
-> [!WARNING]
-> Opsi `allowInsecureHttp: true` membawa risiko keamanan man-in-the-middle (MITM). Jangan pernah mengaktifkan opsi ini pada build production!
-
----
-
-## Format Kontrak Manifest
-
-Server statis Anda menyediakan file `manifest.json`:
-
-```json
-{
-  "build": 2,
-  "version": "1.0.1",
-  "url": "https://domain.com/ota/bundle.zip",
-  "checksum": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "size": 123456
-}
-```
-
-### Ketentuan Manifest:
-- `build`: Bilangan bulat positif (`1..2147483647`). Pembaruan dianggap tersedia jika `remoteBuild > currentBuild`.
-- `version`: String versi yang deskriptif dan tidak boleh kosong (misal `"1.0.1"`).
-- `url`: URL absolut paket `bundle.zip`. Wajib HTTPS kecuali `allowInsecureHttp: true`.
-- `checksum`: 64 karakter heksadesimal SHA-256 dari file `bundle.zip`.
-- `size` (opsional): Ukuran file ZIP dalam byte. Jika disediakan, unduhan wajib memiliki ukuran yang persis sama.
-
----
-
-## Cara Membuat Bundle OTA
-
-Bundle OTA harus dibuat dari direktori hasil build aplikasi web (contohnya `example/dist`):
-
-> [!IMPORTANT]
-> Pastikan isi ZIP memiliki `index.html` langsung di root file ZIP, bukan di dalam subfolder seperti `dist/index.html`.
-
-```bash
-# 1. Masuk ke folder web project dan lakukan build
-cd example
-npm run build
-
-# 2. Masuk ke folder dist dan arsipkan seluruh isinya ke bundle.zip
-cd dist
-zip -r ../bundle.zip .
-cd ..
-
-# 3. Hitung checksum SHA-256 dari bundle.zip
-# macOS / Linux:
-shasum -a 256 bundle.zip
-# atau
-sha256sum bundle.zip
-
-# 4. Perbarui manifest.json dengan checksum dan ukuran file aktual
-```
-
----
-
-## Pengujian Lokal (Development)
-
-Untuk menguji server lokal dari perangkat Android atau emulator:
-
-```bash
-# Mengarahkan port 8080 perangkat Android ke host mesin development
-adb reverse tcp:8080 tcp:8080
-```
-
-Gunakan konfigurasi:
-```json
-{
-  "plugins": {
-    "SwbUpdater": {
-      "updateUrl": "http://127.0.0.1:8080/manifest.json",
-      "allowInsecureHttp": true
+      "autoUpdate": false
     }
   }
 }
@@ -180,294 +124,19 @@ Gunakan konfigurasi:
 
 ---
 
-## Alur Pembaruan & Siklus Hidup
-
-```mermaid
-flowchart TD
-    A[Start / Resume] --> B{server.url aktif?}
-    B -- Ya --> C[Skip OTA / Dev Mode]
-    B -- Tidak --> D[Validasi ServerBasePath & State Store]
-    D --> E{Inkonsistensi / Folder Hilang?}
-    E -- Ya --> F[Self-Healing: Reset ke Builtin]
-    E -- Tidak --> G[Siap Operasi]
-    G --> H[Check / Sync Update]
-    H --> I[Download Streaming + SHA-256 Check]
-    I --> J[Ekstrak ke Staging Terisolasi]
-    J --> K[Validasi Root index.html & Zip-Slip]
-    K --> L[Promosikan ke bundles/build/]
-    L --> M[Simpan State & Emit Applied]
-    M --> N[Jadwalkan Switch ServerBasePath pada WebView]
-```
-
-### Event State (`updateStateChanged`):
-Listener menerima event status berikut secara berurutan:
-1. `checking`: Memeriksa manifest pembaruan.
-2. `up-to-date`: Bundle lokal sudah menggunakan versi terbaru.
-3. `available`: Pembaruan ditemukan di remote.
-4. `downloading`: Mengunduh bundle ZIP ke file sementara.
-5. `verifying`: Menghitung dan mencocokkan SHA-256 checksum.
-6. `installing`: Ekstrak file dan validasi integritas struktur file.
-7. `applying`: Menyimpan state dan menyiapkan switch WebView.
-8. `applied`: Bundle berhasil dipasang dan switch WebView telah dijadwalkan.
-9. `error`: Terjadi kegagalan pada salah satu tahapan.
-
----
-
-## Batasan & Catatan Keamanan
-
-1. **Khusus Android**: Fitur live update OTA native hanya berjalan pada platform Android. Platform Web menggunakan fallback no-op/penolakan yang aman.
-2. **Checksum SHA-256 vs Signature Digital**: Checksum memastikan bundle yang diunduh tidak rusak atau termodifikasi di tengah transmisi terhadap manifest, namun bukan pengganti kriptografi public/private key signature. Pastikan server manifest Anda aman dan dilindungi HTTPS.
-3. **UI State saat Reload**: Switch bundle menggunakan `bridge.setServerBasePath()`, yang memicu pemuatan ulang URL WebView. Hal ini akan me-reset memori/state JavaScript pada aplikasi. Pastikan aplikasi Anda menyimpan state penting ke storage lokal sebelum reload.
-4. **Batas Ekstraksi**: Batas keamanan instalasi: maksimal 5.000 file entry, maksimal ukuran file individual 50 MB, dan maksimal total ukuran dekompresi 100 MB.
-
----
-
-## API Reference
-
-<docgen-index>
-
-* [`checkForUpdate()`](#checkforupdate)
-* [`sync()`](#sync)
-* [`getCurrentBundle()`](#getcurrentbundle)
-* [`resetToBuiltin()`](#resettobuiltin)
-* [`setUserContext(...)`](#setusercontext)
-* [`getUserContext()`](#getusercontext)
-* [`hasFeature(...)`](#hasfeature)
-* [`getFeatures()`](#getfeatures)
-* [`syncFeatures()`](#syncfeatures)
-* [`reportError(...)`](#reporterror)
-* [`addListener('updateStateChanged', ...)`](#addlistenerupdatestatechanged)
-* [Interfaces](#interfaces)
-* [Type Aliases](#type-aliases)
-
-</docgen-index>
-
-<docgen-api>
-<!--Update the source file JSDoc comments and rerun docgen to update the docs below-->
-
-### checkForUpdate()
-
-```typescript
-checkForUpdate() => Promise<UpdateCheckResult>
-```
-
-**Returns:** <code>Promise&lt;<a href="#updatecheckresult">UpdateCheckResult</a>&gt;</code>
-
---------------------
-
-
-### sync()
-
-```typescript
-sync() => Promise<UpdateResult>
-```
-
-**Returns:** <code>Promise&lt;<a href="#updateresult">UpdateResult</a>&gt;</code>
-
---------------------
-
-
-### getCurrentBundle()
-
-```typescript
-getCurrentBundle() => Promise<BundleInfo>
-```
-
-**Returns:** <code>Promise&lt;<a href="#bundleinfo">BundleInfo</a>&gt;</code>
-
---------------------
-
-
-### resetToBuiltin()
-
-```typescript
-resetToBuiltin() => Promise<void>
-```
-
---------------------
-
-
-### setUserContext(...)
-
-```typescript
-setUserContext(context: UserContext) => Promise<void>
-```
-
-| Param         | Type                                                |
-| ------------- | --------------------------------------------------- |
-| **`context`** | <code><a href="#usercontext">UserContext</a></code> |
-
---------------------
-
-
-### getUserContext()
-
-```typescript
-getUserContext() => Promise<UserContext>
-```
-
-**Returns:** <code>Promise&lt;<a href="#usercontext">UserContext</a>&gt;</code>
-
---------------------
-
-
-### hasFeature(...)
-
-```typescript
-hasFeature(options: { name: string; }) => Promise<FeatureCheckResult>
-```
-
-| Param         | Type                           |
-| ------------- | ------------------------------ |
-| **`options`** | <code>{ name: string; }</code> |
-
-**Returns:** <code>Promise&lt;<a href="#featurecheckresult">FeatureCheckResult</a>&gt;</code>
-
---------------------
-
-
-### getFeatures()
-
-```typescript
-getFeatures() => Promise<Record<string, boolean>>
-```
-
-**Returns:** <code>Promise&lt;<a href="#record">Record</a>&lt;string, boolean&gt;&gt;</code>
-
---------------------
-
-
-### syncFeatures()
-
-```typescript
-syncFeatures() => Promise<Record<string, boolean>>
-```
-
-**Returns:** <code>Promise&lt;<a href="#record">Record</a>&lt;string, boolean&gt;&gt;</code>
-
---------------------
-
-
-### reportError(...)
-
-```typescript
-reportError(options: ErrorReportOptions) => Promise<{ reported: boolean; }>
-```
-
-| Param         | Type                                                              |
-| ------------- | ----------------------------------------------------------------- |
-| **`options`** | <code><a href="#errorreportoptions">ErrorReportOptions</a></code> |
-
-**Returns:** <code>Promise&lt;{ reported: boolean; }&gt;</code>
-
---------------------
-
-
-### addListener('updateStateChanged', ...)
-
-```typescript
-addListener(eventName: 'updateStateChanged', listenerFunc: (event: UpdateStateEvent) => void) => Promise<PluginListenerHandle>
-```
-
-| Param              | Type                                                                              |
-| ------------------ | --------------------------------------------------------------------------------- |
-| **`eventName`**    | <code>'updateStateChanged'</code>                                                 |
-| **`listenerFunc`** | <code>(event: <a href="#updatestateevent">UpdateStateEvent</a>) =&gt; void</code> |
-
-**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
-
---------------------
-
-
-### Interfaces
-
-
-#### UpdateCheckResult
-
-| Prop               | Type                 |
-| ------------------ | -------------------- |
-| **`available`**    | <code>boolean</code> |
-| **`currentBuild`** | <code>number</code>  |
-| **`remoteBuild`**  | <code>number</code>  |
-| **`version`**      | <code>string</code>  |
-| **`size`**         | <code>number</code>  |
-
-
-#### UpdateResult
-
-| Prop            | Type                 |
-| --------------- | -------------------- |
-| **`updated`**   | <code>boolean</code> |
-| **`fromBuild`** | <code>number</code>  |
-| **`toBuild`**   | <code>number</code>  |
-| **`version`**   | <code>string</code>  |
-
-
-#### BundleInfo
-
-| Prop          | Type                            |
-| ------------- | ------------------------------- |
-| **`build`**   | <code>number</code>             |
-| **`version`** | <code>string</code>             |
-| **`source`**  | <code>'builtin' \| 'ota'</code> |
-| **`path`**    | <code>string</code>             |
-
-
-#### UserContext
-
-| Prop         | Type                |
-| ------------ | ------------------- |
-| **`userId`** | <code>string</code> |
-| **`branch`** | <code>string</code> |
-| **`role`**   | <code>string</code> |
-
-
-#### FeatureCheckResult
-
-| Prop          | Type                 |
-| ------------- | -------------------- |
-| **`name`**    | <code>string</code>  |
-| **`enabled`** | <code>boolean</code> |
-
-
-#### ErrorReportOptions
-
-| Prop           | Type                                                         |
-| -------------- | ------------------------------------------------------------ |
-| **`feature`**  | <code>string</code>                                          |
-| **`error`**    | <code>string</code>                                          |
-| **`metadata`** | <code><a href="#record">Record</a>&lt;string, any&gt;</code> |
-
-
-#### PluginListenerHandle
-
-| Prop         | Type                                      |
-| ------------ | ----------------------------------------- |
-| **`remove`** | <code>() =&gt; Promise&lt;void&gt;</code> |
-
-
-#### UpdateStateEvent
-
-| Prop          | Type                                                |
-| ------------- | --------------------------------------------------- |
-| **`state`**   | <code><a href="#updatestate">UpdateState</a></code> |
-| **`message`** | <code>string</code>                                 |
-| **`build`**   | <code>number</code>                                 |
-| **`version`** | <code>string</code>                                 |
-
-
-### Type Aliases
-
-
-#### Record
-
-Construct a type with a set of properties K of type T
-
-<code>{ [P in K]: T; }</code>
-
-
-#### UpdateState
-
-<code>'checking' | 'up-to-date' | 'available' | 'downloading' | 'verifying' | 'installing' | 'applying' | 'applied' | 'error'</code>
-
-</docgen-api>
+## Fix Error & Troubleshooting
+
+### 1. Error: "updateUrl tidak valid / gagal download manifest"
+- Pastikan koneksi internet HP kurir aktif.
+- Pastikan URL menggunakan protokol `HTTPS` (bukan HTTP).
+- Cek URL manifest dapat diakses melalui browser: `https://swb-rc.wahana.com/ota/manifest.json`.
+
+### 2. Aplikasi crash atau layar putih setelah update
+- Sistem memiliki **Self-Healing Otomatis**: jika bundle baru crash saat pertama kali buka, native Android otomatis membatalkan bundle baru dan kembali ke versi bawaan APK (`builtin`).
+- Jalankan `npm run ota:rollback` di terminal untuk mengembalikan manifest server ke build stabil sebelumnya.
+
+### 3. Backend fitur baru error (HTTP 500 / Timeout)
+- Tidak perlu rebuild APK atau frontend. Cukup matikan fitur tersebut dalam 1 detik via CLI:
+  ```bash
+  node scripts/ota-cli.js feature:disable <nama_fitur>
+  ```
