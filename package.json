@@ -6,10 +6,15 @@
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
   "unpkg": "dist/plugin.js",
+  "bin": {
+    "swb-ota": "./scripts/ota-cli.js",
+    "ota": "./scripts/ota-cli.js"
+  },
   "files": [
     "android/src/main/",
     "android/build.gradle",
     "dist/",
+    "scripts/",
     "ios/Plugin/",
     "SwbPlugin.podspec"
   ],
@@ -28,6 +33,7 @@
     "native"
   ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.js",
     "verify": "npm run verify:ios && npm run verify:android && npm run verify:web",
     "verify:ios": "cd ios && pod install && xcodebuild -workspace Plugin.xcworkspace -scheme Plugin && cd ..",
     "verify:android": "cd android && ./gradlew clean build test && cd ..",

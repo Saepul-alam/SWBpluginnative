@@ -28,7 +28,8 @@ data class SwbUpdaterConfig(
     val autoUpdate: Boolean = false,
     val baseBuild: Int = 1,
     val baseVersion: String = "1.0.0",
-    val allowInsecureHttp: Boolean = false
+    val allowInsecureHttp: Boolean = false,
+    val telemetryUrl: String? = null
 )
 
 data class UpdateCheckResult(
@@ -53,6 +54,8 @@ class SwbUpdateManager(
     private val mainHandler: Handler = Handler(Looper.getMainLooper()),
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 ) {
+
+    val featureManager = SwbFeatureManager(stateStore)
 
     private val isOperationInProgress = AtomicBoolean(false)
     private val hasRunAutoUpdateSession = AtomicBoolean(false)
@@ -108,6 +111,10 @@ class SwbUpdateManager(
             val errEvent = UpdateStateEvent(UpdateState.ERROR, "Gagal memeriksa pembaruan: ${e.message}")
             emitEvent(onStateChange, errEvent)
             throw SwbUpdateException("Gagal mengambil manifest pembaruan: ${e.message}", "NETWORK_ERROR", e)
+        }
+
+        if (manifest.features != null) {
+            stateStore.setFeaturesJson(manifest.features.toString())
         }
 
         val available = SwbManifest.isUpdateAvailable(manifest.build, activeBundle.build)
@@ -173,6 +180,10 @@ class SwbUpdateManager(
 
                 emitEvent(onStateChange, UpdateStateEvent(UpdateState.CHECKING, "Memeriksa manifest pembaruan..."))
                 val manifest = fetchManifest(config.updateUrl, config.allowInsecureHttp)
+
+                if (manifest.features != null) {
+                    stateStore.setFeaturesJson(manifest.features.toString())
+                }
 
                 val available = SwbManifest.isUpdateAvailable(manifest.build, activeBundle.build)
                 if (!available) {
@@ -492,6 +503,75 @@ class SwbUpdateManager(
             stagingDir.mkdirs()
             tempDir.mkdirs()
         } catch (_: Throwable) {
+        }
+    }
+
+    // --- FEATURES & TELEMETRY ---
+
+    @Throws(SwbUpdateException::class)
+    fun syncFeatures(config: SwbUpdaterConfig): Map<String, Boolean> {
+        validateConfig(config)
+        return try {
+            val manifest = fetchManifest(config.updateUrl, config.allowInsecureHttp)
+            if (manifest.features != null) {
+                stateStore.setFeaturesJson(manifest.features.toString())
+            }
+            featureManager.getAllFeatures()
+        } catch (e: Throwable) {
+            throw SwbUpdateException("Gagal menyinkronkan fitur: ${e.message}", "FEATURE_SYNC_ERROR", e)
+        }
+    }
+
+    fun reportError(
+        config: SwbUpdaterConfig,
+        feature: String?,
+        error: String,
+        metadata: Map<String, Any?>? = null
+    ) {
+        executor.execute {
+            try {
+                val targetUrl = config.telemetryUrl ?: run {
+                    val u = config.updateUrl
+                    val slashIdx = u.lastIndexOf('/')
+                    if (slashIdx != -1) {
+                        u.substring(0, slashIdx) + "/telemetry"
+                    } else {
+                        null
+                    }
+                } ?: return@execute
+
+                val activeBundle = stateStore.getActiveBundle(config.baseBuild, config.baseVersion)
+                val userContext = stateStore.getUserContext()
+
+                val payload = org.json.JSONObject().apply {
+                    put("event", "FEATURE_ERROR")
+                    put("feature", feature ?: "general")
+                    put("error", error)
+                    put("build", activeBundle.build)
+                    put("version", activeBundle.version)
+                    if (userContext.userId != null) put("userId", userContext.userId)
+                    if (userContext.branch != null) put("branch", userContext.branch)
+                    if (userContext.role != null) put("role", userContext.role)
+                    put("timestamp", System.currentTimeMillis())
+                    if (metadata != null) {
+                        put("metadata", org.json.JSONObject(metadata))
+                    }
+                }
+
+                val conn = java.net.URL(targetUrl).openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                conn.outputStream.use { os ->
+                    os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                }
+                conn.responseCode
+                conn.disconnect()
+            } catch (t: Throwable) {
+                Log.w("SwbUpdater", "Gagal mengirim telemetry error: ${t.message}")
+            }
         }
     }
 

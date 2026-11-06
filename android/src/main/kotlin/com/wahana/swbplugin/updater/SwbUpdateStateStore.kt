@@ -10,6 +10,10 @@ interface SwbUpdateStateStore {
     fun setPendingUpdate(pending: PendingUpdateState?)
     fun clearPendingUpdate()
     fun resetToBuiltin(defaultBuild: Int, defaultVersion: String)
+    fun getUserContext(): UserContext
+    fun setUserContext(context: UserContext)
+    fun getFeaturesJson(): String?
+    fun setFeaturesJson(featuresJson: String?)
 }
 
 class SharedPreferencesStateStore(private val context: Context) : SwbUpdateStateStore {
@@ -105,6 +109,33 @@ class SharedPreferencesStateStore(private val context: Context) : SwbUpdateState
             .apply()
     }
 
+    override fun getUserContext(): UserContext {
+        val userId = prefs.getString(KEY_USER_ID, null)
+        val branch = prefs.getString(KEY_USER_BRANCH, null)
+        val role = prefs.getString(KEY_USER_ROLE, null)
+        return UserContext(userId = userId, branch = branch, role = role)
+    }
+
+    override fun setUserContext(context: UserContext) {
+        prefs.edit()
+            .putString(KEY_USER_ID, context.userId)
+            .putString(KEY_USER_BRANCH, context.branch)
+            .putString(KEY_USER_ROLE, context.role)
+            .apply()
+    }
+
+    override fun getFeaturesJson(): String? {
+        return prefs.getString(KEY_CACHED_FEATURES, null)
+    }
+
+    override fun setFeaturesJson(featuresJson: String?) {
+        if (featuresJson == null) {
+            prefs.edit().remove(KEY_CACHED_FEATURES).apply()
+        } else {
+            prefs.edit().putString(KEY_CACHED_FEATURES, featuresJson).apply()
+        }
+    }
+
     companion object {
         const val PREFS_NAME = "swb_updater"
         const val DEFAULT_BUILTIN_PATH = "public"
@@ -118,6 +149,11 @@ class SharedPreferencesStateStore(private val context: Context) : SwbUpdateState
         private const val KEY_PENDING_VERSION = "pending_version"
         private const val KEY_PENDING_PATH = "pending_path"
         private const val KEY_PENDING_AT = "pending_at"
+
+        private const val KEY_USER_ID = "user_id"
+        private const val KEY_USER_BRANCH = "user_branch"
+        private const val KEY_USER_ROLE = "user_role"
+        private const val KEY_CACHED_FEATURES = "cached_features"
     }
 }
 
