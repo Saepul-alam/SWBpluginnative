@@ -31,27 +31,32 @@ Target platforms: **Android** (Kotlin) and **iOS** (Swift), compatible with both
    - **File Manager Image Picker**: Native SAF (Storage Access Framework) on Android / `UIDocumentPicker` on iOS (1 image per call).
    - **Camera Photo Capture**: Invokes the native system camera app; saves optimized JPEG in cache directory.
    - **Camera Video Recording**: Invokes the native system camera app; saves MP4/MOV in cache directory (path only, no base64).
-6. **OTA Live Update (`SwbUpdater`, Android)**:
-   - Downloads a ZIP bundle of the SPA and swaps it into the Capacitor `WebView` without releasing a new APK.
-   - SHA-256 checksum + size verification, HTTPS-only download, and ZIP path-traversal protection.
-   - Optional auto-update on app start/resume, self-healing back to the built-in bundle, and old bundle cleanup.
 
 ---
 
 ## Installation
 
-### Install from GitHub Release
+### 1. Install Plugin Package
 
+Via Git Branch `native` (Recommended):
+```bash
+npm install https://github.com/Saepul-alam/SWBpluginnative.git#native
+npx cap sync
+```
+
+*(Or via GitHub Release Tarball):*
 ```bash
 npm install https://github.com/Saepul-alam/SWBpluginnative/releases/download/v0.0.1/swbplugin-0.0.1.tgz
+npx cap sync
 ```
 
 ---
 
-### Capacitor 2 Compatibility
+### 2. Zero-Configuration Auto-Linking (Capacitor 3+)
 
-If using Capacitor 2, register the plugin in your Android `MainActivity.java`:
+On Capacitor 3+, the plugin is automatically discovered and linked into your Android and iOS projects when you run `npx cap sync`. No manual native code edits are required!
 
+*(For legacy Capacitor 2 only, register in `MainActivity.java`):*
 ```java
 import com.wahana.swbplugin.SwbPlugin;
 
@@ -66,7 +71,26 @@ public class MainActivity extends BridgeActivity {
 }
 ```
 
-On Capacitor 3+, the plugin is automatically registered without modifying `MainActivity`.
+---
+
+## Quick Usage
+
+```typescript
+import { SwbPlugin } from 'swbplugin';
+
+// Check if device is using mock / fake GPS
+const mockCheck = await SwbPlugin.checkMock();
+if (mockCheck.isMock) {
+  console.warn('Fake GPS terdeteksi!');
+}
+
+// Start native background location tracking
+await SwbPlugin.startTracking({
+  trackingMode: 'balance',
+  interval: 10000,
+  uploadUrl: 'https://api.wahana.com/location/track'
+});
+```
 
 ---
 
