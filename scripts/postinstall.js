@@ -66,7 +66,7 @@ if (fs.existsSync(quasarConfPath)) {
 
     const updaterBootPath = path.join(bootDir, 'updater.js')
     if (!fs.existsSync(updaterBootPath)) {
-      const template = `import { SwbUpdater } from 'swbplugin'
+      const template = `import { SwbUpdater } from 'swbupdater'
 import { Dialog, Loading, Notify } from 'quasar'
 
 let cachedFeatures = {}

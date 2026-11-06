@@ -574,7 +574,7 @@ class SwbUpdaterTest {
                   "branches": ["HUB-JKT"]
                 },
                 "delivery.batch_scan": true,
-                "courier.map": false
+                "live.map": false
               }
             }
         """.trimIndent()
@@ -583,7 +583,7 @@ class SwbUpdaterTest {
         assertNotNull(manifest.features)
         assertTrue(manifest.features!!.has("payment.qris"))
         assertTrue(manifest.features!!.getBoolean("delivery.batch_scan"))
-        assertFalse(manifest.features!!.getBoolean("courier.map"))
+        assertFalse(manifest.features!!.getBoolean("live.map"))
     }
 
     @Test
@@ -626,19 +626,19 @@ class SwbUpdaterTest {
             }
         """.trimIndent())
 
-        // Kurir cocok ID dan cabang -> true
-        val courierA = UserContext(userId = "1024", branch = "HUB-JKT")
-        assertTrue(featureManager.isFeatureEnabled("qris", courierA))
+        // User cocok ID dan cabang -> true
+        val userA = UserContext(userId = "1024", branch = "HUB-JKT")
+        assertTrue(featureManager.isFeatureEnabled("qris", userA))
 
-        // Kurir beda ID -> false
-        val courierB = UserContext(userId = "9999", branch = "HUB-JKT")
-        assertFalse(featureManager.isFeatureEnabled("qris", courierB))
+        // User beda ID -> false
+        val userB = UserContext(userId = "9999", branch = "HUB-JKT")
+        assertFalse(featureManager.isFeatureEnabled("qris", userB))
 
-        // Kurir ID cocok tapi cabang beda -> false
-        val courierC = UserContext(userId = "1024", branch = "HUB-BDG")
-        assertFalse(featureManager.isFeatureEnabled("qris", courierC))
+        // User ID cocok tapi cabang beda -> false
+        val userC = UserContext(userId = "1024", branch = "HUB-BDG")
+        assertFalse(featureManager.isFeatureEnabled("qris", userC))
 
-        // Kurir tanpa konteks -> false
+        // User tanpa konteks -> false
         assertFalse(featureManager.isFeatureEnabled("qris", UserContext()))
     }
 

@@ -30,17 +30,17 @@ npx cap sync android
 ## Cara Pakai di Kodingan
 
 ### 1. Cek Update Otomatis saat Buka Aplikasi
-File `src/boot/updater.js` sudah otomatis dibuat dan didaftarkan di `quasar.conf.js`. Saat kurir membuka aplikasi, pop-up pembaruan akan otomatis muncul jika ada build baru.
+File `src/boot/updater.js` sudah otomatis dibuat dan didaftarkan di `quasar.conf.js`. Saat pengguna membuka aplikasi, pop-up pembaruan akan otomatis muncul jika ada build baru.
 
 ### 2. Memakai Saklar Fitur (Feature Flag) di Vue
 Di file `.vue` mana pun, cukup gunakan helper `$feature`:
 ```html
-<!-- Tombol hanya muncul jika fitur aktif untuk kurir tersebut -->
+<!-- Tombol hanya muncul jika fitur aktif untuk pengguna tersebut -->
 <q-btn v-if="$feature('payment.qris')" label="Bayar QRIS" color="positive" icon="qr_code" />
 ```
 
-### 3. Mengirim Data Kurir saat Login
-Di halaman login kurir (misal `Login.vue`), panggil fungsi ini saat kurir berhasil login agar plugin tahu cabang dan ID kurirnya:
+### 3. Mengatur Konteks Pengguna (User Context) saat Login
+Di halaman login (misal `Login.vue`), panggil fungsi ini saat user berhasil login agar plugin tahu cabang dan user ID-nya:
 ```javascript
 import { setUserContext } from 'src/boot/updater'
 
@@ -68,7 +68,7 @@ File hasil build ada di folder `dist/ota`. Upload kedua file ini ke direktori se
 - `dist/ota/bundle.zip`    -> `https://swb-rc.wahana.com/ota/bundle.zip`
 - `dist/ota/manifest.json` -> `https://swb-rc.wahana.com/ota/manifest.json`
 
-Selesai! Seluruh kurir yang membuka aplikasi akan langsung menerima update.
+Selesai! Seluruh pengguna yang membuka aplikasi akan langsung menerima update.
 
 ---
 
@@ -86,7 +86,7 @@ npm run ota
 npm run ota status
 ```
 
-### 3. Buka Fitur Khusus Kurir Tertentu (Uji Coba / Pilot)
+### 3. Buka Fitur Khusus User Tertentu (Uji Coba / Whitelist)
 ```bash
 node scripts/ota-cli.js feature:set payment.qris --enable --users 1024,1025 --branch HUB-JKT
 ```
@@ -127,7 +127,7 @@ Jika server produksi berbeda dengan default (`swb-rc.wahana.com`), sesuaikan fil
 ## Fix Error & Troubleshooting
 
 ### 1. Error: "updateUrl tidak valid / gagal download manifest"
-- Pastikan koneksi internet HP kurir aktif.
+- Pastikan koneksi internet HP pengguna aktif.
 - Pastikan URL menggunakan protokol `HTTPS` (bukan HTTP).
 - Cek URL manifest dapat diakses melalui browser: `https://swb-rc.wahana.com/ota/manifest.json`.
 

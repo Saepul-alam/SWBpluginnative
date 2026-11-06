@@ -52,8 +52,8 @@ function loadManifest() {
       features: {
         'payment.qris': {
           enabled: false,
-          description: 'Pembayaran Delivery menggunakan QRIS',
-          users: ['kurir_test_01'],
+          description: 'Pembayaran menggunakan QRIS',
+          users: ['user_test_01'],
           branches: ['HUB-JKT'],
           releaseDate: null,
           percentage: 100
@@ -118,7 +118,7 @@ function showStatus() {
   console.log(`🔑 SHA-256       : ${manifest.checksum.substring(0, 16)}...${manifest.checksum.substring(48)}`)
   console.log(`📊 Ukuran File   : ${(manifest.size / 1024).toFixed(1)} KB`)
   console.log('-----------------------------------------------------------------')
-  console.log('                 🚩 DAFTAR STATUS FITUR KURIR')
+  console.log('                 🚩 DAFTAR STATUS FITUR (FEATURE FLAGS)')
   console.log('-----------------------------------------------------------------')
 
   const features = manifest.features || {}
@@ -129,11 +129,11 @@ function showStatus() {
   } else {
     keys.forEach((key) => {
       const feat = features[key]
-      let statusStr = '🟢 AKTIF (100% Kurir)'
+      let statusStr = '🟢 AKTIF (100% Pengguna)'
       let details = []
 
       if (typeof feat === 'boolean') {
-        statusStr = feat ? '🟢 AKTIF (100% Kurir)' : '🔴 NONAKTIF (Kill-Switch)'
+        statusStr = feat ? '🟢 AKTIF (100% Pengguna)' : '🔴 NONAKTIF (Kill-Switch)'
       } else {
         if (!feat.enabled) {
           statusStr = '🔴 NONAKTIF (Kill-Switch)'
@@ -146,7 +146,7 @@ function showStatus() {
           }
 
           if (feat.users && feat.users.length > 0) {
-            details.push(`Kurir: [${feat.users.join(', ')}]`)
+            details.push(`User: [${feat.users.join(', ')}]`)
           }
           if (feat.branches && feat.branches.length > 0) {
             details.push(`Cabang: [${feat.branches.join(', ')}]`)
@@ -245,7 +245,7 @@ function runRollback() {
   saveManifest(manifest)
 
   console.log('✅ Rollback berhasil dicatat di manifest.json.')
-  console.log(`Semua HP kurir yang membuka aplikasi akan diarahkan ke Build ${toBuild}.\n`)
+  console.log(`Semua pengguna yang membuka aplikasi akan diarahkan ke Build ${toBuild}.\n`)
 }
 
 // ============================================================================
@@ -300,13 +300,13 @@ function handleFeatureCommand() {
       feat.branches = []
       feat.releaseDate = null
       feat.percentage = 100
-      console.log(`✅ Fitur "${featKey}" sekarang DIAKTIFKAN UNTUK 100% KURIR!`)
+      console.log(`✅ Fitur "${featKey}" sekarang DIAKTIFKAN UNTUK 100% PENGGUNA!`)
     } else {
       console.log(`✅ Fitur "${featKey}" sekarang DIAKTIFKAN.`)
     }
   } else if (subCmd === 'disable') {
     feat.enabled = false
-    console.log(`🛑 KILL-SWITCH DIAKTIFKAN! Fitur "${featKey}" sekarang DINONAKTIFKAN untuk semua kurir.`)
+    console.log(`🛑 KILL-SWITCH DIAKTIFKAN! Fitur "${featKey}" sekarang DINONAKTIFKAN untuk semua pengguna.`)
   } else if (subCmd === 'set') {
     if (hasArg('--enable')) feat.enabled = true
     if (hasArg('--disable')) feat.enabled = false
@@ -362,12 +362,12 @@ function runInteractive() {
 
   async function startWizard() {
     console.log('\n====================================================')
-    console.log('   🚚 SWB OTA & FEATURE MANAGEMENT WIZARD')
+    console.log('   ⚙️  SWB OTA & FEATURE MANAGEMENT WIZARD')
     console.log('====================================================')
     console.log('1. Cek Status Rilis & Fitur')
     console.log('2. Build & Kemas Bundle OTA Baru')
     console.log('3. Nyalakan / Matikan Fitur (Kill-Switch)')
-    console.log('4. Atur Target Pengguna Fitur (Kurir / Cabang / Tanggal)')
+    console.log('4. Atur Target Pengguna Fitur (User ID / Cabang / Tanggal)')
     console.log('5. Emergency Rollback')
     console.log('0. Keluar')
     console.log('----------------------------------------------------')
@@ -403,7 +403,7 @@ function runInteractive() {
     } else if (choice === '4') {
       const featName = (await ask('\nMasukkan nama fitur (contoh: payment.qris): ')).trim()
       console.log('Masukkan target pengguna (kosongkan jika tidak ingin dibatasi):')
-      const users = (await ask('Whitelist ID Kurir (pisahkan koma, misal: 101,102): ')).trim()
+      const users = (await ask('Whitelist User ID (pisahkan koma, misal: 101,102): ')).trim()
       const branches = (await ask('Whitelist Cabang (pisahkan koma, misal: HUB-JKT): ')).trim()
       const date = (await ask('Jadwalkan rilis tanggal (format: YYYY-MM-DD HH:mm atau kosongkan): ')).trim()
       const percent = (await ask('Persentase Rollout (misal: 20 atau kosongkan untuk 100%): ')).trim()
