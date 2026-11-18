@@ -1,7 +1,7 @@
 {
-  "build": 1,
+  "build": 3,
   "version": "0.5.16",
   "url": "https://raw.githubusercontent.com/Saepul-alam/SWBpluginnative/otaforswb/bundle.zip",
-  "checksum": "857e38a0b403f3539c43a523c37618ad238b67e01697c8e808d55bebf469f840",
-  "size": 14067461
+  "checksum": "6067e5d55805deb3b96681421249795d051e64875ea320d38d06518764cb8016",
+  "size": 14068060
 }
