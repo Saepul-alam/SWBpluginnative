@@ -56,25 +56,8 @@ data class LocationRecordEntity(
 
     fun toUploadPayloadJson(): String {
         val root = JSONObject()
-        root.put("id", id)
-        root.put("latitude", latitude)
-        root.put("longitude", longitude)
-        root.put("accuracy", accuracy)
-        if (altitude != null) root.put("altitude", altitude) else root.put("altitude", JSONObject.NULL)
-        if (speed != null) root.put("speed", speed) else root.put("speed", 0.0)
-        if (heading != null) root.put("heading", heading) else root.put("heading", 0.0)
-        root.put("timestamp", timestamp)
-        root.put("isMock", isMock)
-        root.put("provider", provider)
-        if (metadata != null && metadata.isNotEmpty()) {
-            try {
-                root.put("metadata", JSONObject(metadata))
-            } catch (_: Exception) {
-                root.put("metadata", JSONObject())
-            }
-        } else {
-            root.put("metadata", JSONObject())
-        }
+        root.put("latitude", latitude.toString())
+        root.put("longitude", longitude.toString())
         return root.toString()
     }
 }

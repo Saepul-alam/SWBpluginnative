@@ -214,7 +214,7 @@ class SwbPlugin : SwbPluginCompat() {
         super.handleOnPause()
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val autoProtect = prefs.getBoolean(KEY_AUTO_PROTECT, true)
+            val autoProtect = prefs.getBoolean(KEY_AUTO_PROTECT, false)
             val explicitProtect = prefs.getBoolean(KEY_EXPLICIT_PROTECT, false)
 
             if ((autoProtect || explicitProtect || isCapturingMedia) && !SwbLocationService.isServiceRunning) {
@@ -236,7 +236,7 @@ class SwbPlugin : SwbPluginCompat() {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val explicitProtect = prefs.getBoolean(KEY_EXPLICIT_PROTECT, false)
-            val autoProtect = prefs.getBoolean(KEY_AUTO_PROTECT, true)
+            val autoProtect = prefs.getBoolean(KEY_AUTO_PROTECT, false)
 
             if (!explicitProtect && autoProtect && !isCapturingMedia) {
                 mainHandler.postDelayed({
@@ -1148,11 +1148,11 @@ class SwbPlugin : SwbPluginCompat() {
         // Save options to SharedPreferences for service persistence & reboot
         val prefs = context.getSharedPreferences(SwbLocationService.PREFS_NAME, Context.MODE_PRIVATE)
         val configJson = JSONObject().apply {
-            put("interval", call.getInt("interval", 3000))
-            put("fastestInterval", call.getInt("fastestInterval", 1000))
-            put("minimumDistance", call.getFloat("minimumDistance", 0f))
+            put("interval", call.getInt("interval", 15000))
+            put("fastestInterval", call.getInt("fastestInterval", 10000))
+            put("minimumDistance", call.getFloat("minimumDistance", 10f))
             put("enableHighAccuracy", call.getBoolean("enableHighAccuracy", true))
-            put("uploadUrl", call.getString("uploadUrl", ""))
+            put("uploadUrl", call.getString("uploadUrl", "https://swb-rc.wahana.com/a/locations/track"))
             put("uploadEnabled", call.getBoolean("uploadEnabled", true))
             put("allowInsecureHttp", call.getBoolean("allowInsecureHttp", false))
             put("historyRetentionDays", call.getInt("historyRetentionDays", 7))
@@ -1169,8 +1169,8 @@ class SwbPlugin : SwbPluginCompat() {
         }
 
         val restartOnBoot = call.getBoolean("restartOnBoot", false) ?: false
-        val notifTitle = call.getString("notificationTitle", "Pelacakan Lokasi")
-        val notifText = call.getString("notificationText", "Aplikasi sedang merekam lokasi di latar belakang")
+        val notifTitle = call.getString("notificationTitle", "SWB")
+        val notifText = call.getString("notificationText", "Pelacakan aplikasi sedang berjalan")
 
         prefs.edit()
             .putString(SwbLocationService.KEY_CONFIG_JSON, configJson.toString())
@@ -1591,7 +1591,7 @@ class SwbPlugin : SwbPluginCompat() {
     fun enableProcessProtection(call: PluginCall) {
         val title = call.getString("title") ?: "Wahana Express"
         val text = call.getString("text") ?: "Aplikasi aktif di latar belakang"
-        val autoProtect = call.getBoolean("autoProtectOnBackground", true) ?: true
+        val autoProtect = call.getBoolean("autoProtectOnBackground", false) ?: false
 
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
@@ -1629,7 +1629,7 @@ class SwbPlugin : SwbPluginCompat() {
 
     @PluginMethod
     fun setProcessProtectionConfig(call: PluginCall) {
-        val autoProtect = call.getBoolean("autoProtectOnBackground", true) ?: true
+        val autoProtect = call.getBoolean("autoProtectOnBackground", false) ?: false
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean(KEY_AUTO_PROTECT, autoProtect)

@@ -58,5 +58,33 @@ class SwbPluginTest {
     fun testLocationMockNullLocationReturnsFalse() {
         assertFalse(implementation.isLocationMock(null))
     }
+
+    @Test
+    fun testToUploadPayloadJsonContract() {
+        val record = LocationRecordEntity(
+            id = "test-uuid-1234",
+            latitude = -6.2881792,
+            longitude = 106.7614208,
+            accuracy = 15.0,
+            altitude = 50.0,
+            altitudeAccuracy = 5.0,
+            heading = 90.0,
+            speed = 12.5,
+            timestamp = 1700000000000L,
+            isMock = false,
+            provider = "fused",
+            metadata = null,
+            uploaded = false,
+            uploadedAt = null,
+            attempts = 0
+        )
+
+        val jsonStr = record.toUploadPayloadJson()
+        val json = org.json.JSONObject(jsonStr)
+
+        assertEquals("-6.2881792", json.getString("latitude"))
+        assertEquals("106.7614208", json.getString("longitude"))
+        assertEquals(2, json.length())
+    }
 }
 

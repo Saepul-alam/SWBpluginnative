@@ -77,7 +77,7 @@ class SwbLocationService : Service() {
     private val isUploading = AtomicBoolean(false)
 
     // Cached options
-    private var uploadUrl: String? = null
+    private var uploadUrl: String? = "https://swb-rc.wahana.com/a/locations/track"
     private var headersMap: Map<String, String> = emptyMap()
     private var uploadEnabled: Boolean = true
     private var metadataJson: String? = null
@@ -105,8 +105,8 @@ class SwbLocationService : Service() {
         loadConfig()
 
         val notification = buildNotification(
-            prefs.getString("notif_title", "Pelacakan Lokasi") ?: "Pelacakan Lokasi",
-            prefs.getString("notif_text", "Aplikasi sedang merekam lokasi di latar belakang") ?: "Aplikasi sedang merekam lokasi di latar belakang"
+            prefs.getString("notif_title", "SWB") ?: "SWB",
+            prefs.getString("notif_text", "Pelacakan aplikasi sedang berjalan") ?: "Pelacakan aplikasi sedang berjalan"
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -140,7 +140,7 @@ class SwbLocationService : Service() {
         if (configStr != null) {
             try {
                 val json = JSONObject(configStr)
-                uploadUrl = json.optString("uploadUrl", "").takeIf { it.isNotEmpty() }
+                uploadUrl = json.optString("uploadUrl", "https://swb-rc.wahana.com/a/locations/track").takeIf { it.isNotEmpty() }
                 uploadEnabled = json.optBoolean("uploadEnabled", uploadUrl != null)
                 allowInsecureHttp = json.optBoolean("allowInsecureHttp", false)
                 historyRetentionDays = json.optInt("historyRetentionDays", 7)
@@ -177,17 +177,17 @@ class SwbLocationService : Service() {
         }
 
         val configStr = prefs.getString(KEY_CONFIG_JSON, null)
-        var interval = 3000L
-        var fastestInterval = 1000L
-        var minimumDistance = 0f
+        var interval = 15000L          // Rekam setiap 15 detik
+        var fastestInterval = 10000L   // Minimal interval 10 detik
+        var minimumDistance = 10f      // Filter perpindahan minimal 10 meter
         var enableHighAccuracy = true
 
         if (configStr != null) {
             try {
                 val json = JSONObject(configStr)
-                interval = json.optLong("interval", 3000L)
-                fastestInterval = json.optLong("fastestInterval", 1000L)
-                minimumDistance = json.optDouble("minimumDistance", 0.0).toFloat()
+                interval = json.optLong("interval", 15000L)
+                fastestInterval = json.optLong("fastestInterval", 10000L)
+                minimumDistance = json.optDouble("minimumDistance", 10.0).toFloat()
                 enableHighAccuracy = json.optBoolean("enableHighAccuracy", true)
             } catch (_: Exception) {
             }
@@ -458,23 +458,12 @@ class SwbLocationService : Service() {
     }
 
     private fun buildNotification(title: String, text: String): Notification {
-        val stopIntent = Intent(this, SwbLocationService::class.java).apply {
-            action = ACTION_STOP_SERVICE
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            0,
-            stopIntent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-        )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
             .build()
     }
 }
