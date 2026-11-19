@@ -235,6 +235,22 @@ export class SwbPluginWeb extends WebPlugin implements SwbPlugin {
     };
   }
 
+  async isAutostartGranted(): Promise<{
+    granted: boolean;
+  }> {
+    return {
+      granted: true,
+    };
+  }
+
+  async areAllRequirementsMet(): Promise<{
+    met: boolean;
+  }> {
+    return {
+      met: true,
+    };
+  }
+
   async enforceLocation(
     options?: EnforceLocationOptions,
   ): Promise<LocationStatus> {

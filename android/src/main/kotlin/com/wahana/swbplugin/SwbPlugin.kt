@@ -4,11 +4,20 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AppOpsManager
+import android.app.Dialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.location.LocationManager
 import android.media.MediaMetadataRetriever
@@ -21,6 +30,16 @@ import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.Window
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -119,7 +138,8 @@ class SwbPlugin : SwbPluginCompat() {
     private var providerReceiver: LocationProviderReceiver? = null
     private val watchCallbacks = ConcurrentHashMap<String, LocationCallback>()
     private var lastKnownLocation: Location? = null
-    private var gatingDialog: AlertDialog? = null
+    private var gatingDialog: Dialog? = null
+    private var gatingOverlayView: View? = null
     private var isPermissionRequestPending = false
     private var hasRequestedPermissionsOnce = false
     private var hasRequestedBackgroundPermissionOnce = false
@@ -134,6 +154,7 @@ class SwbPlugin : SwbPluginCompat() {
         NONE,
         PERMISSION_DENIED,
         BACKGROUND_PERMISSION_DENIED,
+        AUTOSTART_REQUIRED,
         GPS_DISABLED,
         MOCK_DETECTED
     }
@@ -151,7 +172,7 @@ class SwbPlugin : SwbPluginCompat() {
                 }
             } else {
                 if (currentGatingReason == GatingReason.MOCK_DETECTED) {
-                    if (isFullLocationGranted() && implementation.isLocationEnabled(context)) {
+                    if (isFullLocationGranted() && implementation.isLocationEnabled(context) && isAutostartGranted()) {
                         dismissNativeGatingDialog()
                         emitLocationStatusChanged()
                     }
@@ -182,8 +203,26 @@ class SwbPlugin : SwbPluginCompat() {
 
         startSecurityLocationWatch()
 
-        activity?.runOnUiThread {
-            checkAndEnforce(null)
+        // Immediate Gating Check on App Startup:
+        // Synchronously conceal WebView before the first frame is painted if requirements are not met
+        try {
+            if (!areAllRequirementsMet()) {
+                bridge?.webView?.visibility = View.INVISIBLE
+            }
+        } catch (_: Exception) {
+        }
+
+        val currentActivity = activity
+        if (currentActivity != null) {
+            currentActivity.runOnUiThread {
+                if (!areAllRequirementsMet()) {
+                    bridge?.webView?.visibility = View.INVISIBLE
+                    checkAndEnforce(null)
+                } else {
+                    bridge?.webView?.visibility = View.VISIBLE
+                    dismissNativeGatingDialog()
+                }
+            }
         }
 
         injectGeolocationSafetyHook()
@@ -275,8 +314,16 @@ class SwbPlugin : SwbPluginCompat() {
             prefs.edit().putBoolean(SwbLocationService.KEY_GPS_DISABLED_BG, false).apply()
         }
 
-        activity?.runOnUiThread {
-            checkAndEnforce(null)
+        val currentActivity = activity
+        if (currentActivity != null) {
+            currentActivity.runOnUiThread {
+                if (!areAllRequirementsMet()) {
+                    bridge?.webView?.visibility = View.INVISIBLE
+                    checkAndEnforce(null)
+                } else {
+                    dismissNativeGatingDialog()
+                }
+            }
         }
         startSecurityLocationWatch()
         injectGeolocationSafetyHook()
@@ -478,6 +525,18 @@ class SwbPlugin : SwbPluginCompat() {
             return
         }
 
+        if (!isAutostartGranted()) {
+            activity?.runOnUiThread {
+                checkAndEnforce(null)
+            }
+            emitLocationStatusChanged()
+            call.reject(
+                "Aplikasi mewajibkan izin 'Mulai Otomatis' agar pelacakan lokasi tetap berjalan di latar belakang dan tidak terhenti saat aplikasi ditutup.",
+                "AUTOSTART_REQUIRED"
+            )
+            return
+        }
+
         if (implementation.isHookingFrameworkDetected()) {
             activity?.runOnUiThread {
                 showMockGatingDialog()
@@ -585,6 +644,18 @@ class SwbPlugin : SwbPluginCompat() {
             call.reject(
                 "Aplikasi mewajibkan izin akses lokasi 'Izinkan sepanjang waktu' agar dapat digunakan dan dilacak di latar belakang.",
                 "BACKGROUND_LOCATION_DENIED"
+            )
+            return
+        }
+
+        if (!isAutostartGranted()) {
+            activity?.runOnUiThread {
+                checkAndEnforce(null)
+            }
+            emitLocationStatusChanged()
+            call.reject(
+                "Aplikasi mewajibkan izin 'Mulai Otomatis' agar pelacakan lokasi tetap berjalan di latar belakang dan tidak terhenti saat aplikasi ditutup.",
+                "AUTOSTART_REQUIRED"
             )
             return
         }
@@ -832,59 +903,14 @@ class SwbPlugin : SwbPluginCompat() {
                 emitLocationStatusChanged()
                 val fineGranted = isLocationPermissionGranted()
 
-                val isEnforceCall = saved?.methodName == "enforceLocation" || (saved != null && saved.hasOption("actionButtonLabel"))
-
-                if (isEnforceCall) {
-                    if (!fineGranted) {
-                        val isCoarseOnly = isCoarseLocationGranted()
-                        val messageText = if (isCoarseOnly) {
-                            "Aplikasi membutuhkan akses lokasi akurat. Silakan aktifkan opsi 'Gunakan Lokasi Akurat' pada menu Pengaturan Lokasi aplikasi."
-                        } else {
-                            "Aplikasi membutuhkan izin akses lokasi agar dapat memproses data Anda. Silakan berikan izin melalui Pengaturan."
-                        }
-
-                        showNativeGatingDialog(
-                            reason = GatingReason.PERMISSION_DENIED,
-                            title = "Izin Lokasi Diperlukan",
-                            message = messageText,
-                            actionText = "Buka Pengaturan",
-                            exitText = "Keluar",
-                            onAction = {
-                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                    data = Uri.fromParts("package", context.packageName, null)
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                }
-                                context.startActivity(intent)
-                            }
-                        )
-                        val status = implementation.calculateStatus(
-                            enabled = implementation.isLocationEnabled(context),
-                            granted = false,
-                            isMock = false,
-                            isCoarseOnly = isCoarseOnly,
-                            backgroundGranted = false
-                        )
-                        saved?.resolve(status)
-                    } else {
-                        startSecurityLocationWatch()
-                        checkAndEnforce(saved)
-                    }
-                } else {
-                    if (saved != null) {
-                        checkPermissions(saved)
-                    }
+                if (fineGranted) {
+                    startSecurityLocationWatch()
                 }
+                checkAndEnforce(saved)
             }
             REQUEST_BACKGROUND_LOCATION_PERMISSION -> {
                 emitLocationStatusChanged()
-                val isEnforceCall = saved?.methodName == "enforceLocation" || (saved != null && saved.hasOption("actionButtonLabel"))
-                if (isEnforceCall) {
-                    checkAndEnforce(saved)
-                } else {
-                    if (saved != null) {
-                        checkPermissions(saved)
-                    }
-                }
+                checkAndEnforce(saved)
             }
             REQUEST_CAMERA_PERMISSION -> {
                 val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -924,6 +950,82 @@ class SwbPlugin : SwbPluginCompat() {
         }
     }
 
+    fun isAutostartGranted(): Boolean {
+        // 1. Check Xiaomi / MIUI OP_AUTO_START (10008) via AppOpsManager
+        try {
+            val appOpsManager = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
+            if (appOpsManager != null) {
+                val checkOpNoThrow = appOpsManager.javaClass.getMethod(
+                    "checkOpNoThrow",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    String::class.java
+                )
+                val mode = checkOpNoThrow.invoke(appOpsManager, 10008, Process.myUid(), context.packageName) as Int
+                if (mode == AppOpsManager.MODE_ALLOWED) {
+                    return true
+                }
+                if (mode == AppOpsManager.MODE_IGNORED || mode == AppOpsManager.MODE_ERRORED) {
+                    return false
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 2. Check Battery Optimization (Whitelist Baterai) on Android 6.0+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isIgnoring = powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+            if (isIgnoring) {
+                return true
+            }
+        }
+
+        // 3. Fallback: Check SharedPreferences if non-MIUI and user has already configured it
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean("swb_autostart_configured", false)
+    }
+
+    @PluginMethod
+    fun isAutostartGranted(call: PluginCall) {
+        val granted = isAutostartGranted()
+        val ret = JSObject().apply {
+            put("granted", granted)
+        }
+        call.resolve(ret)
+    }
+
+    fun areAllRequirementsMet(): Boolean {
+        if (!implementation.isLocationEnabled(context)) {
+            return false
+        }
+        if (!isLocationPermissionGranted()) {
+            return false
+        }
+        if (!isBackgroundLocationGranted()) {
+            return false
+        }
+        if (!isAutostartGranted()) {
+            return false
+        }
+        if (implementation.isHookingFrameworkDetected()) {
+            return false
+        }
+        if (lastKnownLocation != null && implementation.isLocationMock(context, lastKnownLocation)) {
+            return false
+        }
+        return true
+    }
+
+    @PluginMethod
+    fun areAllRequirementsMet(call: PluginCall) {
+        val met = areAllRequirementsMet()
+        val ret = JSObject().apply {
+            put("met", met)
+        }
+        call.resolve(ret)
+    }
+
     @PluginMethod
     fun enforceLocation(call: PluginCall) {
         activity?.runOnUiThread {
@@ -943,21 +1045,49 @@ class SwbPlugin : SwbPluginCompat() {
 
         val title = call?.getString("title")
         val msgDenied = call?.getString("messagePermissionDenied")
-            ?: "Aplikasi membutuhkan izin akses lokasi presisi (GPS) agar dapat digunakan. Silakan berikan izin akses lokasi melalui Pengaturan aplikasi."
+            ?: "Aplikasi memerlukan izin akses lokasi agar dapat digunakan."
         val msgBg = call?.getString("messageBackgroundLocationDenied")
-            ?: "Aplikasi membutuhkan izin akses lokasi 'Izinkan sepanjang waktu'.\n\nSilakan buka Pengaturan > Izin > Lokasi, lalu pilih 'Izinkan sepanjang waktu'."
+            ?: "Aplikasi memerlukan izin akses lokasi sepanjang waktu agar dapat digunakan."
         val msgGps = call?.getString("messageGpsDisabled")
-            ?: "Layanan GPS pada perangkat Anda sedang nonaktif. Silakan aktifkan GPS untuk melanjutkan penggunaan aplikasi."
+            ?: "Aplikasi memerlukan layanan GPS aktif agar dapat digunakan."
         val msgMock = call?.getString("messageMockDetected")
-            ?: "Terdeteksi penggunaan aplikasi pemalsu lokasi (Fake GPS). Silakan nonaktifkan Fake GPS pada perangkat Anda untuk melanjutkan."
+            ?: "Aplikasi memerlukan lokasi asli dan tidak dapat berjalan jika Fake GPS terdeteksi aktif."
         val actionLabel = call?.getString("actionButtonLabel")
         val exitLabel = call?.getString("exitButtonLabel") ?: "Keluar"
+        val force = call?.getBoolean("force", false) ?: false
+        val prefs = currentActivity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val autostartDone = prefs.getBoolean("swb_autostart_configured", false)
+
+        if (force) {
+            showNativeGatingDialog(
+                reason = GatingReason.PERMISSION_DENIED,
+                title = title ?: "Izin Lokasi & Mulai Otomatis",
+                message = msgDenied,
+                actionText = actionLabel ?: "Lanjutkan",
+                exitText = exitLabel,
+                onAction = {
+                    if (!isAutostartGranted()) {
+                        launchAutostartSettingsInternal()
+                    } else {
+                        dismissNativeGatingDialog()
+                    }
+                }
+            )
+            val status = implementation.calculateStatus(
+                enabled = implementation.isLocationEnabled(context),
+                granted = isLocationPermissionGranted(),
+                isMock = false,
+                backgroundGranted = isBackgroundLocationGranted()
+            )
+            call?.resolve(status)
+            return
+        }
 
         // 1. Cek apakah GPS perangkat mati TERLEBIH DAHULU
         if (!implementation.isLocationEnabled(context)) {
             showNativeGatingDialog(
                 reason = GatingReason.GPS_DISABLED,
-                title = title ?: "Aktifkan Layanan Lokasi",
+                title = title ?: "Layanan GPS Diperlukan",
                 message = msgGps,
                 actionText = actionLabel ?: "Aktifkan GPS",
                 exitText = exitLabel,
@@ -985,40 +1115,41 @@ class SwbPlugin : SwbPluginCompat() {
             if (isPermissionRequestPending) {
                 return
             }
-            if (!hasRequestedPermissionsOnce && !isAnyRuntimeLocationPermissionGranted()) {
-                isPermissionRequestPending = true
-                if (call != null) {
-                    saveCall(call)
-                }
-                pluginRequestPermissions(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ),
-                    REQUEST_LOCATION_PERMISSION
-                )
-                return
-            }
 
             val isCoarseOnly = isCoarseLocationGranted()
             val messageText = if (isCoarseOnly) {
-                "Aplikasi membutuhkan akses izin lokasi presisi (akurat). Silakan aktifkan opsi 'Gunakan Lokasi Akurat' pada menu Pengaturan aplikasi."
+                "Aplikasi memerlukan izin akses lokasi presisi (akurat) agar dapat digunakan."
             } else {
                 msgDenied
             }
 
             showNativeGatingDialog(
                 reason = GatingReason.PERMISSION_DENIED,
-                title = "Izin Lokasi Diperlukan",
+                title = title ?: "Izin Lokasi & Latar Belakang",
                 message = messageText,
-                actionText = "Buka Pengaturan",
+                actionText = actionLabel ?: "Lanjutkan",
                 exitText = exitLabel,
                 onAction = {
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.fromParts("package", context.packageName, null)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    if (!hasRequestedPermissionsOnce && !isAnyRuntimeLocationPermissionGranted()) {
+                        hasRequestedPermissionsOnce = true
+                        isPermissionRequestPending = true
+                        if (call != null) {
+                            saveCall(call)
+                        }
+                        pluginRequestPermissions(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ),
+                            REQUEST_LOCATION_PERMISSION
+                        )
+                    } else {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
                     }
-                    context.startActivity(intent)
                 }
             )
             val status = implementation.calculateStatus(
@@ -1037,9 +1168,9 @@ class SwbPlugin : SwbPluginCompat() {
         if (!isBackgroundLocationGranted()) {
             showNativeGatingDialog(
                 reason = GatingReason.BACKGROUND_PERMISSION_DENIED,
-                title = "Izin Lokasi Sepanjang Waktu Diperlukan",
+                title = title ?: "Izin Lokasi Sepanjang Waktu",
                 message = msgBg,
-                actionText = "Buka Pengaturan",
+                actionText = actionLabel ?: "Lanjutkan",
                 exitText = exitLabel,
                 onAction = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasRequestedBackgroundPermissionOnce) {
@@ -1069,7 +1200,31 @@ class SwbPlugin : SwbPluginCompat() {
             return
         }
 
-        // 4. Cek manipulasi Fake GPS yang aktif pada lastKnownLocation
+        // 4. Cek Mulai Otomatis di Latar Belakang (Autostart - Wajib Aktif!)
+        if (!isAutostartGranted()) {
+            showNativeGatingDialog(
+                reason = GatingReason.AUTOSTART_REQUIRED,
+                title = title ?: "Mulai Otomatis Diperlukan",
+                message = "Aplikasi mewajibkan izin 'Mulai Otomatis' agar pelacakan lokasi tetap berjalan di latar belakang dan tidak terhenti saat aplikasi ditutup.",
+                actionText = actionLabel ?: "Aktifkan Mulai Otomatis",
+                exitText = exitLabel,
+                onAction = {
+                    launchAutostartSettingsInternal()
+                }
+            )
+            val status = implementation.calculateStatus(
+                enabled = true,
+                granted = true,
+                isMock = false,
+                isCoarseOnly = false,
+                backgroundGranted = true
+            )
+            notifyListeners("locationStatusChanged", status)
+            call?.resolve(status)
+            return
+        }
+
+        // 5. Cek manipulasi Fake GPS yang aktif pada lastKnownLocation
         val isMock = (lastKnownLocation != null && implementation.isLocationMock(context, lastKnownLocation)) || implementation.isHookingFrameworkDetected()
         if (isMock) {
             showMockGatingDialog(msgMock)
@@ -1091,7 +1246,7 @@ class SwbPlugin : SwbPluginCompat() {
                             }
                             emitLocationStatusChanged()
                         } else {
-                            if (isFullLocationGranted() && implementation.isLocationEnabled(context)) {
+                            if (isFullLocationGranted() && implementation.isLocationEnabled(context) && isAutostartGranted()) {
                                 dismissNativeGatingDialog()
                                 emitLocationStatusChanged()
                             }
@@ -1118,8 +1273,8 @@ class SwbPlugin : SwbPluginCompat() {
     private fun showMockGatingDialog(customMessage: String? = null) {
         showNativeGatingDialog(
             reason = GatingReason.MOCK_DETECTED,
-            title = "Lokasi Tiruan Terdeteksi",
-            message = customMessage ?: "Terdeteksi penggunaan aplikasi pemalsu lokasi (Fake GPS). Silakan nonaktifkan Fake GPS pada perangkat Anda untuk melanjutkan.",
+            title = "Lokasi Asli Diperlukan",
+            message = customMessage ?: "Aplikasi memerlukan lokasi asli dan tidak dapat berjalan jika Fake GPS terdeteksi aktif.",
             actionText = "Coba Lagi",
             exitText = "Keluar",
             onAction = {
@@ -1159,33 +1314,394 @@ class SwbPlugin : SwbPluginCompat() {
         currentGatingReason = reason
 
         currentActivity.runOnUiThread {
-            if (gatingDialog?.isShowing == true) {
-                gatingDialog?.dismiss()
+            // Conceal WebView immediately so main screen NEVER flashes
+            bridge?.webView?.visibility = View.INVISIBLE
+
+            val contentLayout = currentActivity.findViewById<ViewGroup>(android.R.id.content)
+
+            // Dismiss previous overlay if showing
+            gatingOverlayView?.let { oldView ->
+                (oldView.parent as? ViewGroup)?.removeView(oldView)
             }
-            gatingDialog = AlertDialog.Builder(currentActivity)
-                .setTitle(title)
-                .setMessage(message)
-                .setCancelable(false)
-                .setPositiveButton(actionText) { _, _ ->
+            gatingOverlayView = null
+
+            if (gatingDialog?.isShowing == true) {
+                try {
+                    gatingDialog?.dismiss()
+                } catch (_: Exception) {
+                }
+            }
+            gatingDialog = null
+
+            val density = currentActivity.resources.displayMetrics.density
+            fun dp(value: Int): Int = (value * density + 0.5f).toInt()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                currentActivity.window.statusBarColor = Color.parseColor("#152C66")
+                currentActivity.window.navigationBarColor = Color.parseColor("#152C66")
+            }
+
+            val scrollView = ScrollView(currentActivity).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                isFillViewport = true
+                setBackgroundColor(Color.parseColor("#152C66"))
+                isFocusable = true
+                isFocusableInTouchMode = true
+                isClickable = true
+            }
+
+            scrollView.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    currentActivity.finishAffinity()
+                    true
+                } else {
+                    false
+                }
+            }
+
+            val rootLayout = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                setPadding(dp(24), dp(44), dp(24), dp(32))
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+
+            // --- CARD CONTAINER ---
+            val cardView = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1.0f
+                )
+                lp.setMargins(0, dp(16), 0, dp(24))
+                layoutParams = lp
+                setPadding(dp(24), dp(36), dp(24), dp(36))
+
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Color.parseColor("#1F4EB5"), Color.parseColor("#152C66"))
+                ).apply {
+                    cornerRadius = dp(24).toFloat()
+                    setStroke(dp(1), Color.parseColor("#2B58C9"))
+                }
+            }
+
+            // --- ICON CONTAINER ---
+            val iconSize = dp(96)
+            val iconContainer = FrameLayout(currentActivity).apply {
+                val lp = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    bottomMargin = dp(24)
+                }
+                layoutParams = lp
+
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#2552BD"))
+                    setStroke(dp(2), Color.parseColor("#FFD200"))
+                }
+            }
+
+            val pinView = object : View(currentActivity) {
+                private val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#FFD200")
+                    style = Paint.Style.FILL
+                }
+                private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#152C66")
+                    style = Paint.Style.FILL
+                }
+                private val path = Path()
+
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val w = width.toFloat()
+                    val h = height.toFloat()
+                    val cx = w / 2f
+                    val r = w * 0.22f
+                    val cy = h * 0.40f
+
+                    path.reset()
+                    path.moveTo(cx, h * 0.82f)
+                    path.cubicTo(
+                        cx - r * 0.9f, h * 0.62f,
+                        cx - r, cy + r * 0.5f,
+                        cx - r, cy
+                    )
+                    path.arcTo(
+                        RectF(cx - r, cy - r, cx + r, cy + r),
+                        180f,
+                        180f,
+                        false
+                    )
+                    path.cubicTo(
+                        cx + r, cy + r * 0.5f,
+                        cx + r * 0.9f, h * 0.62f,
+                        cx, h * 0.82f
+                    )
+                    path.close()
+
+                    canvas.drawPath(path, pinPaint)
+                    canvas.drawCircle(cx, cy, r * 0.42f, dotPaint)
+                }
+            }
+            iconContainer.addView(pinView, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            cardView.addView(iconContainer)
+
+            // --- TITLE ---
+            val tvTitle = TextView(currentActivity).apply {
+                text = title
+                setTextColor(Color.WHITE)
+                textSize = 21f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setLineSpacing(dp(2).toFloat(), 1f)
+            }
+            cardView.addView(tvTitle)
+
+            // --- MESSAGE ---
+            val tvMessage = TextView(currentActivity).apply {
+                text = message
+                setTextColor(Color.parseColor("#D9E2F7"))
+                textSize = 14f
+                typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                gravity = Gravity.CENTER
+                setLineSpacing(dp(4).toFloat(), 1f)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = dp(14)
+                }
+                layoutParams = lp
+            }
+            cardView.addView(tvMessage)
+
+            if (reason == GatingReason.PERMISSION_DENIED || reason == GatingReason.BACKGROUND_PERMISSION_DENIED || reason == GatingReason.AUTOSTART_REQUIRED) {
+                val fineGranted = isLocationPermissionGranted()
+                val bgGranted = isBackgroundLocationGranted()
+                val autostartGranted = isAutostartGranted()
+
+                fun createPermissionBadge(
+                    iconText: String,
+                    itemTitle: String,
+                    itemDesc: String,
+                    isGranted: Boolean,
+                    onClick: (() -> Unit)? = null
+                ): View {
+                    val row = LinearLayout(currentActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        val lp = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = dp(10)
+                        }
+                        layoutParams = lp
+                        setPadding(dp(12), dp(10), dp(12), dp(10))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(12).toFloat()
+                            setColor(Color.parseColor(if (isGranted) "#193B80" else "#142857"))
+                            setStroke(dp(1), Color.parseColor(if (isGranted) "#38BDF8" else "#224A9B"))
+                        }
+                        if (onClick != null) {
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { onClick() }
+                        }
+                    }
+
+                    val badge = TextView(currentActivity).apply {
+                        text = if (isGranted) "✓" else iconText
+                        setTextColor(if (isGranted) Color.parseColor("#38BDF8") else Color.WHITE)
+                        textSize = if (isGranted) 16f else 14f
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                        val lp = LinearLayout.LayoutParams(dp(30), dp(30)).apply {
+                            rightMargin = dp(10)
+                        }
+                        layoutParams = lp
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(Color.parseColor(if (isGranted) "#0C2760" else "#214EA7"))
+                        }
+                    }
+                    row.addView(badge)
+
+                    val textCol = LinearLayout(currentActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+                    }
+
+                    val tvItemTitle = TextView(currentActivity).apply {
+                        text = itemTitle
+                        setTextColor(if (isGranted) Color.parseColor("#E0F2FE") else Color.WHITE)
+                        textSize = 13f
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    }
+                    textCol.addView(tvItemTitle)
+
+                    val tvItemDesc = TextView(currentActivity).apply {
+                        text = itemDesc
+                        setTextColor(Color.parseColor(if (isGranted) "#94A3B8" else "#CBD5E1"))
+                        textSize = 11f
+                        setLineSpacing(dp(1).toFloat(), 1f)
+                    }
+                    textCol.addView(tvItemDesc)
+
+                    row.addView(textCol)
+                    return row
+                }
+
+                val itemFine = createPermissionBadge(
+                    iconText = "📍",
+                    itemTitle = "Izin Lokasi Presisi (GPS)",
+                    itemDesc = if (fineGranted) "Izin lokasi presisi telah aktif" else "Memastikan koordinat titik akurat",
+                    isGranted = fineGranted,
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+
+                val itemBg = createPermissionBadge(
+                    iconText = "🔄",
+                    itemTitle = "Izin Lokasi Sepanjang Waktu",
+                    itemDesc = if (bgGranted) "Izin latar belakang telah aktif" else "Pilih 'Izinkan sepanjang waktu' di pengaturan",
+                    isGranted = bgGranted,
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+
+                val itemAutostart = createPermissionBadge(
+                    iconText = "⚡",
+                    itemTitle = "Mulai Otomatis di Latar Belakang",
+                    itemDesc = if (autostartGranted) "Mulai otomatis telah aktif" else "Wajib Aktif • Ketuk untuk menyalakan sakelar",
+                    isGranted = autostartGranted,
+                    onClick = {
+                        launchAutostartSettingsInternal()
+                    }
+                )
+
+                cardView.addView(itemFine)
+                cardView.addView(itemBg)
+                cardView.addView(itemAutostart)
+            }
+
+            rootLayout.addView(cardView)
+
+            // --- ACTION BUTTONS ---
+            val buttonContainer = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+
+            val btnAction = Button(currentActivity).apply {
+                text = actionText
+                setTextColor(Color.parseColor("#152C66"))
+                textSize = 16f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                isAllCaps = false
+                elevation = dp(4).toFloat()
+
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(14).toFloat()
+                    setColor(Color.parseColor("#FFD200"))
+                }
+
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(52)
+                )
+                layoutParams = lp
+
+                setOnClickListener {
                     onAction()
                 }
-                .setNegativeButton(exitText) { _, _ ->
+            }
+            buttonContainer.addView(btnAction)
+
+            val btnExit = TextView(currentActivity).apply {
+                text = exitText
+                setTextColor(Color.parseColor("#94A3B8"))
+                textSize = 14f
+                typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(14), 0, dp(4))
+
+                setOnClickListener {
                     currentActivity.finishAffinity()
                 }
-                .create()
+            }
+            buttonContainer.addView(btnExit)
 
-            gatingDialog?.setCanceledOnTouchOutside(false)
-            gatingDialog?.show()
+            rootLayout.addView(buttonContainer)
+            scrollView.addView(rootLayout)
+
+            if (contentLayout != null) {
+                contentLayout.addView(
+                    scrollView,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                )
+                gatingOverlayView = scrollView
+                scrollView.requestFocus()
+            } else {
+                val dialog = Dialog(currentActivity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+                dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+                dialog.setCancelable(false)
+                dialog.setCanceledOnTouchOutside(false)
+                dialog.setContentView(scrollView)
+                gatingDialog = dialog
+                dialog.show()
+            }
         }
     }
 
     private fun dismissNativeGatingDialog() {
         currentGatingReason = GatingReason.NONE
         activity?.runOnUiThread {
+            gatingOverlayView?.let { view ->
+                (view.parent as? ViewGroup)?.removeView(view)
+            }
+            gatingOverlayView = null
+
             if (gatingDialog?.isShowing == true) {
-                gatingDialog?.dismiss()
+                try {
+                    gatingDialog?.dismiss()
+                } catch (_: Exception) {
+                }
             }
             gatingDialog = null
+
+            // Reveal the WebView (main page) only when all requirements are fully satisfied
+            bridge?.webView?.visibility = View.VISIBLE
         }
     }
 
@@ -1268,7 +1784,7 @@ class SwbPlugin : SwbPluginCompat() {
     }
 
     @PluginMethod
-    fun openAutostartSettings(call: PluginCall) {
+    private fun launchAutostartSettingsInternal(): Boolean {
         val intents = listOf(
             // Xiaomi / MIUI / HyperOS
             Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
@@ -1295,33 +1811,37 @@ class SwbPlugin : SwbPluginCompat() {
             Intent().setComponent(ComponentName("com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity"))
         )
 
-        var opened = false
         for (intent in intents) {
             try {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
-                opened = true
-                break
+                return true
             } catch (_: Exception) {
             }
         }
 
-        if (!opened) {
-            try {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.fromParts("package", context.packageName, null)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
-                opened = true
-            } catch (e: Exception) {
-                call.reject("Gagal membuka pengaturan autostart: ${e.message}", "AUTOSTART_SETTINGS_ERROR")
-                return
+        return try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
+            context.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    @PluginMethod
+    fun openAutostartSettings(call: PluginCall) {
+        val opened = launchAutostartSettingsInternal()
+        if (!opened) {
+            call.reject("Gagal membuka pengaturan autostart", "AUTOSTART_SETTINGS_ERROR")
+            return
         }
 
         val ret = JSObject().apply {
-            put("opened", opened)
+            put("opened", true)
             put("message", "Berhasil membuka halaman pengaturan Mulai Otomatis / Pengaturan Aplikasi.")
         }
         call.resolve(ret)
@@ -1367,6 +1887,18 @@ class SwbPlugin : SwbPluginCompat() {
             call.reject(
                 "Pelacakan latar belakang membutuhkan izin lokasi 'Izinkan sepanjang waktu'. Silakan pilih 'Izinkan sepanjang waktu' pada Pengaturan Izin Lokasi.",
                 "BACKGROUND_LOCATION_DENIED"
+            )
+            return
+        }
+
+        if (!isAutostartGranted()) {
+            activity?.runOnUiThread {
+                checkAndEnforce(null)
+            }
+            emitLocationStatusChanged()
+            call.reject(
+                "Pelacakan latar belakang membutuhkan izin 'Mulai Otomatis'. Silakan aktifkan Mulai Otomatis agar layanan tidak terhenti saat aplikasi ditutup.",
+                "AUTOSTART_REQUIRED"
             )
             return
         }

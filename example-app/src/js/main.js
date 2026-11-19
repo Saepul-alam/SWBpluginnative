@@ -70,7 +70,7 @@ document.getElementById('btn-enforce').addEventListener('click', async () => {
   try {
     const status = await SwbPlugin.enforceLocation({
       title: 'Akses Lokasi Diperlukan',
-      messagePermissionDenied: 'Aplikasi Wahana SWB membutuhkan izin lokasi presisi.',
+      messagePermissionDenied: 'Aplikasi membutuhkan izin lokasi presisi.',
       messageGpsDisabled: 'GPS perangkat Anda nonaktif. Silakan aktifkan GPS.',
       messageMockDetected: 'Fake GPS terdeteksi. Matikan Fake GPS untuk melanjutkan.',
     });
@@ -78,6 +78,20 @@ document.getElementById('btn-enforce').addEventListener('click', async () => {
     updateStatusBadge(status);
   } catch (err) {
     log('enforceLocation error', err.message);
+  }
+});
+
+// 2b. Preview Onboarding
+document.getElementById('btn-preview-onboarding').addEventListener('click', async () => {
+  try {
+    const status = await SwbPlugin.enforceLocation({
+      force: true,
+      title: 'Izin Lokasi & Latar Belakang',
+      messagePermissionDenied: 'Aplikasi memerlukan izin akses lokasi presisi dan akses di latar belakang agar pelacakan lokasi tetap berjalan secara akurat.',
+    });
+    log('previewOnboarding', status);
+  } catch (err) {
+    log('previewOnboarding error', err.message);
   }
 });
 
@@ -267,11 +281,14 @@ document.getElementById('btn-clear-log').addEventListener('click', () => {
   logOutput.innerText = '// Activity logs cleared.';
 });
 
-// Initial Status Check
+// Initial Status & Gating Check (triggers Onboarding if permissions / autostart needed)
 SwbPlugin.checkLocationStatus()
   .then(updateStatusBadge)
   .catch(() => {});
 SwbPlugin.isBackgroundLocationRunning()
   .then((res) => updateBgBadge(res.running))
+  .catch(() => {});
+SwbPlugin.enforceLocation()
+  .then(updateStatusBadge)
   .catch(() => {});
 

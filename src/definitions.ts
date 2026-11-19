@@ -87,6 +87,7 @@ export interface EnforceLocationOptions {
   messageMockDetected?: string;
   actionButtonLabel?: string;
   exitButtonLabel?: string;
+  force?: boolean;
 }
 
 export interface BackgroundLocationOptions extends WatchPositionOptions {
@@ -195,6 +196,12 @@ export interface SwbPlugin {
   openAutostartSettings(): Promise<{
     opened: boolean;
     message?: string;
+  }>;
+  isAutostartGranted(): Promise<{
+    granted: boolean;
+  }>;
+  areAllRequirementsMet(): Promise<{
+    met: boolean;
   }>;
 
   // Background + history + upload
