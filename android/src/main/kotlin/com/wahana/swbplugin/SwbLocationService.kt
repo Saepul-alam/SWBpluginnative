@@ -1,6 +1,7 @@
 package com.wahana.swbplugin
 
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -97,6 +98,7 @@ class SwbLocationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVICE) {
+            prefs.edit().putBoolean(KEY_IS_RUNNING, false).apply()
             stopTracking()
             stopSelf()
             return START_NOT_STICKY
@@ -126,12 +128,37 @@ class SwbLocationService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val wasRunning = prefs.getBoolean(KEY_IS_RUNNING, false)
+        if (wasRunning) {
+            try {
+                val restartIntent = Intent(applicationContext, SwbLocationService::class.java).apply {
+                    action = ACTION_START_SERVICE
+                }
+                val pendingIntent = PendingIntent.getService(
+                    applicationContext,
+                    1,
+                    restartIntent,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                )
+                val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                alarmManager?.set(
+                    AlarmManager.RTC,
+                    System.currentTimeMillis() + 1000L,
+                    pendingIntent
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "onTaskRemoved reschedule failed: ${e.message}")
+            }
+        }
+    }
+
     override fun onDestroy() {
         stopTracking()
         unregisterNetworkCallback()
         uploadExecutor.shutdownNow()
         isServiceRunning = false
-        prefs.edit().putBoolean(KEY_IS_RUNNING, false).apply()
         super.onDestroy()
     }
 
