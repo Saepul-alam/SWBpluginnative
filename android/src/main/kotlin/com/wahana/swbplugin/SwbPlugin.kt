@@ -942,6 +942,8 @@ class SwbPlugin : SwbPluginCompat() {
         val title = call?.getString("title")
         val msgDenied = call?.getString("messagePermissionDenied")
             ?: "Aplikasi membutuhkan izin akses lokasi presisi (GPS) agar dapat digunakan. Silakan berikan izin akses lokasi melalui Pengaturan aplikasi."
+        val msgBg = call?.getString("messageBackgroundLocationDenied")
+            ?: "Aplikasi membutuhkan izin akses lokasi 'Izinkan sepanjang waktu'.\n\nSilakan buka Pengaturan > Izin > Lokasi, lalu pilih 'Izinkan sepanjang waktu'."
         val msgGps = call?.getString("messageGpsDisabled")
             ?: "Layanan GPS pada perangkat Anda sedang nonaktif. Silakan aktifkan GPS untuk melanjutkan penggunaan aplikasi."
         val msgMock = call?.getString("messageMockDetected")
@@ -1031,12 +1033,10 @@ class SwbPlugin : SwbPluginCompat() {
 
         // 3. Cek izin lokasi latar belakang / sepanjang waktu (Android 10+)
         if (!isBackgroundLocationGranted()) {
-            val messageBg = "Aplikasi membutuhkan izin akses lokasi 'Izinkan sepanjang waktu' agar pelacakan pengiriman operasional dapat terus berjalan secara otomatis di latar belakang saat aplikasi diminimalkan atau layar mati.\n\nSilakan buka Pengaturan > Izin > Lokasi, lalu pilih 'Izinkan sepanjang waktu'."
-
             showNativeGatingDialog(
                 reason = GatingReason.BACKGROUND_PERMISSION_DENIED,
                 title = "Izin Lokasi Sepanjang Waktu Diperlukan",
-                message = messageBg,
+                message = msgBg,
                 actionText = "Buka Pengaturan",
                 exitText = exitLabel,
                 onAction = {

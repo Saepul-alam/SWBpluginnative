@@ -82,6 +82,7 @@ export interface LocationStatus {
 export interface EnforceLocationOptions {
   title?: string;
   messagePermissionDenied?: string;
+  messageBackgroundLocationDenied?: string;
   messageGpsDisabled?: string;
   messageMockDetected?: string;
   actionButtonLabel?: string;
