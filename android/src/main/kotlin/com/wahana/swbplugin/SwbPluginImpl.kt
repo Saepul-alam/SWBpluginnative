@@ -415,9 +415,10 @@ class SwbPluginImpl {
         enabled: Boolean,
         granted: Boolean,
         isMock: Boolean,
-        isCoarseOnly: Boolean = false
+        isCoarseOnly: Boolean = false,
+        backgroundGranted: Boolean = true
     ): JSObject {
-        val usable = enabled && granted && !isMock
+        val usable = enabled && granted && !isMock && backgroundGranted
         val code: String
         val message: String
         val solution: String
@@ -438,6 +439,11 @@ class SwbPluginImpl {
                 message = "Izin akses lokasi belum diberikan."
                 solution = "Berikan izin lokasi di Pengaturan aplikasi."
             }
+            !backgroundGranted -> {
+                code = "BACKGROUND_LOCATION_DENIED"
+                message = "Izin akses lokasi sepanjang waktu (latar belakang) belum aktif."
+                solution = "Pilih 'Izinkan sepanjang waktu' pada menu Pengaturan Izin Lokasi aplikasi."
+            }
             isMock -> {
                 code = "MOCK_DETECTED"
                 message = "Lokasi palsu (Fake GPS) terdeteksi aktif."
@@ -455,6 +461,7 @@ class SwbPluginImpl {
             put("granted", granted)
             put("isMock", isMock)
             put("usable", usable)
+            put("backgroundGranted", backgroundGranted)
             put("code", code)
             put("message", message)
             put("solution", solution)

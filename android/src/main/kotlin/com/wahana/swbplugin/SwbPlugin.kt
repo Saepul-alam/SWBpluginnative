@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap
     name = "SwbPlugin",
     requestCodes = [
         SwbPlugin.REQUEST_LOCATION_PERMISSION,
+        SwbPlugin.REQUEST_BACKGROUND_LOCATION_PERMISSION,
         SwbPlugin.REQUEST_CAMERA_PERMISSION,
         SwbPlugin.REQUEST_VIDEO_PERMISSION,
         SwbPlugin.REQUEST_PICK_IMAGE,
@@ -53,6 +54,7 @@ import java.util.concurrent.ConcurrentHashMap
     permissions = [
         Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO
     ]
@@ -63,6 +65,7 @@ class SwbPlugin : SwbPluginCompat() {
         const val TAG = "SwbPlugin"
 
         const val REQUEST_LOCATION_PERMISSION = 1000
+        const val REQUEST_BACKGROUND_LOCATION_PERMISSION = 1003
         const val REQUEST_CAMERA_PERMISSION = 1001
         const val REQUEST_VIDEO_PERMISSION = 1002
 
@@ -117,6 +120,7 @@ class SwbPlugin : SwbPluginCompat() {
     private var gatingDialog: AlertDialog? = null
     private var isPermissionRequestPending = false
     private var hasRequestedPermissionsOnce = false
+    private var hasRequestedBackgroundPermissionOnce = false
 
     // Pending media files
     private var tempPhotoFile: File? = null
@@ -127,6 +131,7 @@ class SwbPlugin : SwbPluginCompat() {
     private enum class GatingReason {
         NONE,
         PERMISSION_DENIED,
+        BACKGROUND_PERMISSION_DENIED,
         GPS_DISABLED,
         MOCK_DETECTED
     }
@@ -144,7 +149,7 @@ class SwbPlugin : SwbPluginCompat() {
                 }
             } else {
                 if (currentGatingReason == GatingReason.MOCK_DETECTED) {
-                    if (isLocationPermissionGranted() && implementation.isLocationEnabled(context)) {
+                    if (isFullLocationGranted() && implementation.isLocationEnabled(context)) {
                         dismissNativeGatingDialog()
                         emitLocationStatusChanged()
                     }
@@ -421,6 +426,20 @@ class SwbPlugin : SwbPluginCompat() {
         ) == PackageManager.PERMISSION_GRANTED || isCoarseLocationGranted()
     }
 
+    fun isBackgroundLocationGranted(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return isLocationPermissionGranted()
+        }
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun isFullLocationGranted(): Boolean {
+        return isLocationPermissionGranted() && isBackgroundLocationGranted()
+    }
+
     // --- Foreground Location Methods ---
 
     @SuppressLint("MissingPermission")
@@ -442,6 +461,18 @@ class SwbPlugin : SwbPluginCompat() {
                 "Izin akses lokasi belum diberikan. Silakan berikan izin akses lokasi pada Pengaturan aplikasi."
             }
             call.reject(msg, if (isCoarseOnly) "COARSE_ONLY" else "PERMISSION_DENIED")
+            return
+        }
+
+        if (!isBackgroundLocationGranted()) {
+            activity?.runOnUiThread {
+                checkAndEnforce(null)
+            }
+            emitLocationStatusChanged()
+            call.reject(
+                "Aplikasi mewajibkan izin akses lokasi 'Izinkan sepanjang waktu' agar dapat digunakan dan dilacak di latar belakang.",
+                "BACKGROUND_LOCATION_DENIED"
+            )
             return
         }
 
@@ -541,6 +572,18 @@ class SwbPlugin : SwbPluginCompat() {
                 "Izin akses lokasi belum diberikan. Silakan berikan izin akses lokasi pada Pengaturan aplikasi."
             }
             call.reject(msg, if (isCoarseOnly) "COARSE_ONLY" else "PERMISSION_DENIED")
+            return
+        }
+
+        if (!isBackgroundLocationGranted()) {
+            activity?.runOnUiThread {
+                checkAndEnforce(null)
+            }
+            emitLocationStatusChanged()
+            call.reject(
+                "Aplikasi mewajibkan izin akses lokasi 'Izinkan sepanjang waktu' agar dapat digunakan dan dilacak di latar belakang.",
+                "BACKGROUND_LOCATION_DENIED"
+            )
             return
         }
 
@@ -654,19 +697,20 @@ class SwbPlugin : SwbPluginCompat() {
         val enabled = implementation.isLocationEnabled(context)
         val granted = isLocationPermissionGranted()
         val isCoarseOnly = isCoarseLocationGranted() && !granted
+        val bgGranted = isBackgroundLocationGranted()
         val isMock = implementation.isLocationMock(context, lastKnownLocation) || implementation.isHookingFrameworkDetected()
-        call.resolve(implementation.calculateStatus(enabled, granted, isMock, isCoarseOnly))
+        call.resolve(implementation.calculateStatus(enabled, granted, isMock, isCoarseOnly, bgGranted))
     }
 
     @PluginMethod
     override fun checkPermissions(call: PluginCall) {
         val granted = isLocationPermissionGranted()
-        val permString = if (granted) "granted" else "prompt"
+        val bgGranted = isBackgroundLocationGranted()
+        val fullGranted = granted && bgGranted
+        val permString = if (fullGranted) "granted" else if (granted) "prompt-with-rationale" else "prompt"
 
         val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val micGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val bgGranted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
 
         val missing = mutableListOf<String>()
         val solutions = mutableListOf<String>()
@@ -679,6 +723,9 @@ class SwbPlugin : SwbPluginCompat() {
                 missing.add("Lokasi")
                 solutions.add("Pilih 'Izinkan saat aplikasi digunakan' pada menu Pengaturan aplikasi")
             }
+        } else if (!bgGranted) {
+            missing.add("Lokasi Latar Belakang (Sepanjang Waktu)")
+            solutions.add("Pilih 'Izinkan sepanjang waktu' pada menu Pengaturan Izin Lokasi")
         }
         if (!cameraGranted) {
             missing.add("Kamera")
@@ -690,9 +737,10 @@ class SwbPlugin : SwbPluginCompat() {
         }
 
         val ret = JSObject().apply {
-            put("location", permString)
+            put("location", if (granted) "granted" else "prompt")
             put("coarseLocation", if (isCoarseLocationGranted()) "granted" else "prompt")
             put("backgroundLocation", if (bgGranted) "granted" else "prompt")
+            put("fullLocation", if (fullGranted) "granted" else "prompt")
             put("camera", if (cameraGranted) "granted" else "prompt")
             put("microphone", if (micGranted) "granted" else "prompt")
 
@@ -720,6 +768,8 @@ class SwbPlugin : SwbPluginCompat() {
                         if (!isLocationPermissionGranted()) {
                             permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
                             permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isBackgroundLocationGranted()) {
+                            permissionsToRequest.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                         }
                     }
                     "camera" -> {
@@ -732,9 +782,8 @@ class SwbPlugin : SwbPluginCompat() {
                             permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
                         }
                     }
-                    "backgroundLocation" -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    "backgroundLocation", "fullLocation" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isBackgroundLocationGranted()) {
                             permissionsToRequest.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                         }
                     }
@@ -744,6 +793,8 @@ class SwbPlugin : SwbPluginCompat() {
             if (!isLocationPermissionGranted()) {
                 permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
                 permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isBackgroundLocationGranted()) {
+                permissionsToRequest.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
         }
 
@@ -751,9 +802,15 @@ class SwbPlugin : SwbPluginCompat() {
             checkPermissions(call)
         } else {
             saveCall(call)
+            val hasBg = permissionsToRequest.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            val reqCode = if (hasBg && permissionsToRequest.size == 1) {
+                REQUEST_BACKGROUND_LOCATION_PERMISSION
+            } else {
+                REQUEST_LOCATION_PERMISSION
+            }
             pluginRequestPermissions(
                 permissionsToRequest.distinct().toTypedArray(),
-                REQUEST_LOCATION_PERMISSION
+                reqCode
             )
         }
     }
@@ -802,13 +859,25 @@ class SwbPlugin : SwbPluginCompat() {
                             enabled = implementation.isLocationEnabled(context),
                             granted = false,
                             isMock = false,
-                            isCoarseOnly = isCoarseOnly
+                            isCoarseOnly = isCoarseOnly,
+                            backgroundGranted = false
                         )
                         saved?.resolve(status)
                     } else {
                         startSecurityLocationWatch()
                         checkAndEnforce(saved)
                     }
+                } else {
+                    if (saved != null) {
+                        checkPermissions(saved)
+                    }
+                }
+            }
+            REQUEST_BACKGROUND_LOCATION_PERMISSION -> {
+                emitLocationStatusChanged()
+                val isEnforceCall = saved?.methodName == "enforceLocation" || (saved != null && saved.hasOption("actionButtonLabel"))
+                if (isEnforceCall) {
+                    checkAndEnforce(saved)
                 } else {
                     if (saved != null) {
                         checkPermissions(saved)
@@ -952,24 +1021,63 @@ class SwbPlugin : SwbPluginCompat() {
                 enabled = true,
                 granted = false,
                 isMock = false,
-                isCoarseOnly = isCoarseOnly
+                isCoarseOnly = isCoarseOnly,
+                backgroundGranted = false
             )
             notifyListeners("locationStatusChanged", status)
             call?.resolve(status)
             return
         }
 
-        // 3. Cek manipulasi Fake GPS yang aktif pada lastKnownLocation
-        val isMock = (lastKnownLocation != null && implementation.isLocationMock(context, lastKnownLocation)) || implementation.isHookingFrameworkDetected()
-        if (isMock) {
-            showMockGatingDialog(msgMock)
-            val status = implementation.calculateStatus(enabled = true, granted = true, isMock = true)
+        // 3. Cek izin lokasi latar belakang / sepanjang waktu (Android 10+)
+        if (!isBackgroundLocationGranted()) {
+            val messageBg = "Aplikasi membutuhkan izin akses lokasi 'Izinkan sepanjang waktu' agar pelacakan pengiriman operasional dapat terus berjalan secara otomatis di latar belakang saat aplikasi diminimalkan atau layar mati.\n\nSilakan buka Pengaturan > Izin > Lokasi, lalu pilih 'Izinkan sepanjang waktu'."
+
+            showNativeGatingDialog(
+                reason = GatingReason.BACKGROUND_PERMISSION_DENIED,
+                title = "Izin Lokasi Sepanjang Waktu Diperlukan",
+                message = messageBg,
+                actionText = "Buka Pengaturan",
+                exitText = exitLabel,
+                onAction = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasRequestedBackgroundPermissionOnce) {
+                        hasRequestedBackgroundPermissionOnce = true
+                        pluginRequestPermissions(
+                            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                            REQUEST_BACKGROUND_LOCATION_PERMISSION
+                        )
+                    } else {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    }
+                }
+            )
+            val status = implementation.calculateStatus(
+                enabled = true,
+                granted = true,
+                isMock = false,
+                isCoarseOnly = false,
+                backgroundGranted = false
+            )
             notifyListeners("locationStatusChanged", status)
             call?.resolve(status)
             return
         }
 
-        // 4. Jika lastKnownLocation masih null, periksa asynchronous
+        // 4. Cek manipulasi Fake GPS yang aktif pada lastKnownLocation
+        val isMock = (lastKnownLocation != null && implementation.isLocationMock(context, lastKnownLocation)) || implementation.isHookingFrameworkDetected()
+        if (isMock) {
+            showMockGatingDialog(msgMock)
+            val status = implementation.calculateStatus(enabled = true, granted = true, isMock = true, backgroundGranted = true)
+            notifyListeners("locationStatusChanged", status)
+            call?.resolve(status)
+            return
+        }
+
+        // 5. Jika lastKnownLocation masih null, periksa asynchronous
         if (lastKnownLocation == null) {
             try {
                 fusedLocationClient.lastLocation.addOnSuccessListener { loc: Location? ->
@@ -981,7 +1089,7 @@ class SwbPlugin : SwbPluginCompat() {
                             }
                             emitLocationStatusChanged()
                         } else {
-                            if (isLocationPermissionGranted() && implementation.isLocationEnabled(context)) {
+                            if (isFullLocationGranted() && implementation.isLocationEnabled(context)) {
                                 dismissNativeGatingDialog()
                                 emitLocationStatusChanged()
                             }
@@ -992,15 +1100,15 @@ class SwbPlugin : SwbPluginCompat() {
             }
         }
 
-        // 5. Cek root / hooking
+        // 6. Cek root / hooking
         if (implementation.isHookingFrameworkDetected()) {
             showMockGatingDialog(msgMock)
             return
         }
 
-        // 6. Valid
+        // 7. Valid
         dismissNativeGatingDialog()
-        val status = implementation.calculateStatus(enabled = true, granted = true, isMock = false)
+        val status = implementation.calculateStatus(enabled = true, granted = true, isMock = false, backgroundGranted = true)
         notifyListeners("locationStatusChanged", status)
         call?.resolve(status)
     }
@@ -1110,8 +1218,9 @@ class SwbPlugin : SwbPluginCompat() {
         val enabled = implementation.isLocationEnabled(context)
         val granted = isLocationPermissionGranted()
         val isCoarseOnly = isCoarseLocationGranted() && !granted
+        val bgGranted = isBackgroundLocationGranted()
         val isMock = implementation.isLocationMock(context, lastKnownLocation) || implementation.isHookingFrameworkDetected()
-        notifyListeners("locationStatusChanged", implementation.calculateStatus(enabled, granted, isMock, isCoarseOnly))
+        notifyListeners("locationStatusChanged", implementation.calculateStatus(enabled, granted, isMock, isCoarseOnly, bgGranted))
     }
 
     // --- Background Location & Upload Methods ---
@@ -1134,6 +1243,18 @@ class SwbPlugin : SwbPluginCompat() {
                 "Izin akses lokasi belum diberikan. Silakan berikan izin akses lokasi pada Pengaturan aplikasi sebelum memulai pelacakan latar belakang."
             }
             call.reject(msg, if (isCoarseOnly) "COARSE_ONLY" else "PERMISSION_DENIED")
+            return
+        }
+
+        if (!isBackgroundLocationGranted()) {
+            activity?.runOnUiThread {
+                checkAndEnforce(null)
+            }
+            emitLocationStatusChanged()
+            call.reject(
+                "Pelacakan latar belakang membutuhkan izin lokasi 'Izinkan sepanjang waktu'. Silakan pilih 'Izinkan sepanjang waktu' pada Pengaturan Izin Lokasi.",
+                "BACKGROUND_LOCATION_DENIED"
+            )
             return
         }
 

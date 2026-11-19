@@ -63,6 +63,7 @@ export type LocationStatusCode =
   | 'OK'
   | 'PERMISSION_DENIED'
   | 'COARSE_ONLY'
+  | 'BACKGROUND_LOCATION_DENIED'
   | 'GPS_DISABLED'
   | 'MOCK_DETECTED'
   | 'SIGNAL_TIMEOUT';
@@ -72,6 +73,7 @@ export interface LocationStatus {
   granted: boolean;
   isMock: boolean;
   usable: boolean;
+  backgroundGranted?: boolean;
   code?: LocationStatusCode;
   message?: string;
   solution?: string;

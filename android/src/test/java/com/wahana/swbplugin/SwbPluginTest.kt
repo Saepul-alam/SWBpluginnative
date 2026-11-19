@@ -25,6 +25,9 @@ class SwbPluginTest {
 
         val noPermStatus = implementation.calculateStatus(enabled = true, granted = false, isMock = false)
         assertFalse(noPermStatus.getBoolean("usable"))
+
+        val noBgPermStatus = implementation.calculateStatus(enabled = true, granted = true, isMock = false, backgroundGranted = false)
+        assertFalse(noBgPermStatus.getBoolean("usable"))
     }
 
     @Test
@@ -52,6 +55,10 @@ class SwbPluginTest {
         val mockStatus = implementation.calculateStatus(enabled = true, granted = true, isMock = true)
         assertEquals("MOCK_DETECTED", mockStatus.getString("code"))
         assertTrue(mockStatus.getString("solution")?.contains("Fake GPS") == true)
+
+        val bgDeniedStatus = implementation.calculateStatus(enabled = true, granted = true, isMock = false, backgroundGranted = false)
+        assertEquals("BACKGROUND_LOCATION_DENIED", bgDeniedStatus.getString("code"))
+        assertTrue(bgDeniedStatus.getString("solution")?.contains("sepanjang waktu") == true)
     }
 
     @Test
