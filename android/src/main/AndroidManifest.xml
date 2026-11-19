@@ -15,12 +15,14 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application>
         <service
             android:name=".SwbLocationService"
             android:enabled="true"
             android:exported="false"
+            android:process=":tracking"
             android:stopWithTask="false"
             android:foregroundServiceType="location" />
 

@@ -136,18 +136,37 @@ class SwbLocationService : Service() {
                 val restartIntent = Intent(applicationContext, SwbLocationService::class.java).apply {
                     action = ACTION_START_SERVICE
                 }
-                val pendingIntent = PendingIntent.getService(
-                    applicationContext,
-                    1,
-                    restartIntent,
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-                )
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    PendingIntent.getForegroundService(
+                        applicationContext,
+                        1,
+                        restartIntent,
+                        flags
+                    )
+                } else {
+                    PendingIntent.getService(
+                        applicationContext,
+                        1,
+                        restartIntent,
+                        flags
+                    )
+                }
                 val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-                alarmManager?.set(
-                    AlarmManager.RTC,
-                    System.currentTimeMillis() + 1000L,
-                    pendingIntent
-                )
+                val triggerTime = System.currentTimeMillis() + 1000L
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager?.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager?.set(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "onTaskRemoved reschedule failed: ${e.message}")
             }

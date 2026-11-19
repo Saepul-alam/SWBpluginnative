@@ -213,6 +213,28 @@ export class SwbPluginWeb extends WebPlugin implements SwbPlugin {
     console.info('openAppSettings is not supported on web.');
   }
 
+  async requestIgnoreBatteryOptimizations(): Promise<{
+    ignoring: boolean;
+    message?: string;
+  }> {
+    console.info('requestIgnoreBatteryOptimizations is not supported on web.');
+    return {
+      ignoring: true,
+      message: 'Battery optimizations are not applicable on web browser.',
+    };
+  }
+
+  async openAutostartSettings(): Promise<{
+    opened: boolean;
+    message?: string;
+  }> {
+    console.info('openAutostartSettings is not supported on web.');
+    return {
+      opened: false,
+      message: 'Autostart settings are not applicable on web browser.',
+    };
+  }
+
   async enforceLocation(
     options?: EnforceLocationOptions,
   ): Promise<LocationStatus> {

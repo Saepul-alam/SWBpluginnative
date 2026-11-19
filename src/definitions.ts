@@ -188,6 +188,14 @@ export interface SwbPlugin {
   }): Promise<PermissionStatus>;
   openLocationSettings(): Promise<void>;
   openAppSettings(): Promise<void>;
+  requestIgnoreBatteryOptimizations(): Promise<{
+    ignoring: boolean;
+    message?: string;
+  }>;
+  openAutostartSettings(): Promise<{
+    opened: boolean;
+    message?: string;
+  }>;
 
   // Background + history + upload
   startBackgroundLocation(options: BackgroundLocationOptions): Promise<void>;

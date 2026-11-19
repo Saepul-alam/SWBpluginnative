@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AppOpsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -15,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
@@ -1212,6 +1214,117 @@ class SwbPlugin : SwbPluginCompat() {
         } catch (e: Exception) {
             call.reject("Tidak dapat membuka menu Pengaturan Aplikasi secara otomatis. Silakan buka menu Pengaturan perangkat Anda.", "OPEN_SETTINGS_FAILED")
         }
+    }
+
+    @PluginMethod
+    fun requestIgnoreBatteryOptimizations(call: PluginCall) {
+        val packageName = context.packageName
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isIgnoring = powerManager?.isIgnoringBatteryOptimizations(packageName) ?: false
+            if (isIgnoring) {
+                val ret = JSObject().apply {
+                    put("ignoring", true)
+                    put("message", "Aplikasi sudah diizinkan berjalan bebas di latar belakang (whitelist baterai).")
+                }
+                call.resolve(ret)
+                return
+            }
+
+            try {
+                @SuppressLint("BatteryLife")
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                val ret = JSObject().apply {
+                    put("ignoring", false)
+                    put("message", "Membuka dialog persetujuan pengecualian penghemat baterai.")
+                }
+                call.resolve(ret)
+            } catch (e: Exception) {
+                try {
+                    val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(fallbackIntent)
+                    val ret = JSObject().apply {
+                        put("ignoring", false)
+                        put("message", "Membuka halaman pengaturan penghemat baterai.")
+                    }
+                    call.resolve(ret)
+                } catch (e2: Exception) {
+                    call.reject("Gagal membuka pengaturan baterai: ${e2.message}", "BATTERY_OPTIMIZATION_ERROR")
+                }
+            }
+        } else {
+            val ret = JSObject().apply {
+                put("ignoring", true)
+                put("message", "Versi Android di bawah Android 6.0 tidak memerlukan pengecualian baterai.")
+            }
+            call.resolve(ret)
+        }
+    }
+
+    @PluginMethod
+    fun openAutostartSettings(call: PluginCall) {
+        val intents = listOf(
+            // Xiaomi / MIUI / HyperOS
+            Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+            Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.powercenter.PowerSettings")),
+            // Oppo / ColorOS / Realme
+            Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
+            Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")),
+            Intent().setComponent(ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")),
+            Intent().setComponent(ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity")),
+            // Vivo / iQOO / FuntouchOS
+            Intent().setComponent(ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")),
+            Intent().setComponent(ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager")),
+            Intent().setComponent(ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
+            // Huawei / Honor
+            Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")),
+            Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")),
+            // Samsung
+            Intent().setComponent(ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")),
+            Intent().setComponent(ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")),
+            // Asus
+            Intent().setComponent(ComponentName("com.asus.mobilemanager", "com.asus.mobilemanager.entry.FunctionActivity")),
+            Intent().setComponent(ComponentName("com.asus.mobilemanager", "com.asus.mobilemanager.autostart.AutoStartActivity")),
+            // Letv
+            Intent().setComponent(ComponentName("com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity"))
+        )
+
+        var opened = false
+        for (intent in intents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                opened = true
+                break
+            } catch (_: Exception) {
+            }
+        }
+
+        if (!opened) {
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", context.packageName, null)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                opened = true
+            } catch (e: Exception) {
+                call.reject("Gagal membuka pengaturan autostart: ${e.message}", "AUTOSTART_SETTINGS_ERROR")
+                return
+            }
+        }
+
+        val ret = JSObject().apply {
+            put("opened", opened)
+            put("message", "Berhasil membuka halaman pengaturan Mulai Otomatis / Pengaturan Aplikasi.")
+        }
+        call.resolve(ret)
     }
 
     private fun emitLocationStatusChanged() {
