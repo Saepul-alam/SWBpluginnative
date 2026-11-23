@@ -14,7 +14,14 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Rect
 import android.graphics.RectF
+import android.content.res.ColorStateList
+import androidx.core.widget.CompoundButtonCompat
+import android.widget.CheckBox
+import android.widget.ImageView
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -140,6 +147,9 @@ class SwbPlugin : SwbPluginCompat() {
     private var lastKnownLocation: Location? = null
     private var gatingDialog: Dialog? = null
     private var gatingOverlayView: View? = null
+    private var termsDialog: Dialog? = null
+    private var permissionRequiredDialog: Dialog? = null
+    private var isPermissionChainCompleted: Boolean = false
     private var isPermissionRequestPending = false
     private var hasRequestedPermissionsOnce = false
     private var hasRequestedBackgroundPermissionOnce = false
@@ -203,13 +213,47 @@ class SwbPlugin : SwbPluginCompat() {
 
         startSecurityLocationWatch()
 
-        // Immediate Gating Check on App Startup:
+        // Pemeriksaan Syarat & Ketentuan Penggunaan Aplikasi pada saat startup
+        if (!isTermsAccepted()) {
+            activity?.runOnUiThread {
+                showTermsAndConditionsDialog()
+            }
+            return
+        }
+
+        // Immediate Gating Check on App Startup (jika Syarat & Ketentuan sudah disetujui):
         // Synchronously conceal WebView before the first frame is painted if requirements are not met
         try {
             if (!areAllRequirementsMet()) {
                 bridge?.webView?.visibility = View.INVISIBLE
             }
         } catch (_: Exception) {
+        }
+
+        // Pemeriksaan Syarat & Ketentuan serta Izin Operasional saat resume
+        if (!isTermsAccepted()) {
+            activity?.runOnUiThread {
+                showTermsAndConditionsDialog()
+            }
+            return
+        } else if (!isLocationPermissionGranted()) {
+            activity?.runOnUiThread {
+                showPermissionRequiredDialog(
+                    title = "Izin Lokasi Diperlukan",
+                    message = "Aplikasi memerlukan akses lokasi presisi untuk dapat digunakan dalam kegiatan operasional. Silakan aktifkan izin lokasi di menu Pengaturan perangkat Anda."
+                )
+            }
+            return
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isBackgroundLocationGranted()) {
+            activity?.runOnUiThread {
+                showPermissionRequiredDialog(
+                    title = "Izin Lokasi Latar Belakang Diperlukan",
+                    message = "Aplikasi memerlukan izin lokasi 'Izinkan sepanjang waktu' agar pelacakan operasional tetap berjalan saat aplikasi diminimalkan. Silakan pilih 'Izinkan sepanjang waktu' di menu Pengaturan perangkat Anda."
+                )
+            }
+            return
+        } else {
+            dismissPermissionRequiredDialog()
         }
 
         val currentActivity = activity
@@ -312,6 +356,32 @@ class SwbPlugin : SwbPluginCompat() {
 
         if (prefs.getBoolean(SwbLocationService.KEY_GPS_DISABLED_BG, false)) {
             prefs.edit().putBoolean(SwbLocationService.KEY_GPS_DISABLED_BG, false).apply()
+        }
+
+        // Pemeriksaan Syarat & Ketentuan serta Izin Operasional saat resume
+        if (!isTermsAccepted()) {
+            activity?.runOnUiThread {
+                showTermsAndConditionsDialog()
+            }
+            return
+        } else if (!isLocationPermissionGranted()) {
+            activity?.runOnUiThread {
+                showPermissionRequiredDialog(
+                    title = "Izin Lokasi Diperlukan",
+                    message = "Aplikasi memerlukan akses lokasi presisi untuk dapat digunakan dalam kegiatan operasional. Silakan aktifkan izin lokasi di menu Pengaturan perangkat Anda."
+                )
+            }
+            return
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isBackgroundLocationGranted()) {
+            activity?.runOnUiThread {
+                showPermissionRequiredDialog(
+                    title = "Izin Lokasi Latar Belakang Diperlukan",
+                    message = "Aplikasi memerlukan izin lokasi 'Izinkan sepanjang waktu' agar pelacakan operasional tetap berjalan saat aplikasi diminimalkan. Silakan pilih 'Izinkan sepanjang waktu' di menu Pengaturan perangkat Anda."
+                )
+            }
+            return
+        } else {
+            dismissPermissionRequiredDialog()
         }
 
         val currentActivity = activity
@@ -906,11 +976,43 @@ class SwbPlugin : SwbPluginCompat() {
                 if (fineGranted) {
                     startSecurityLocationWatch()
                 }
-                checkAndEnforce(saved)
+
+                if (isTermsAccepted()) {
+                    if (!fineGranted) {
+                        showPermissionRequiredDialog(
+                            title = "Izin Lokasi Diperlukan",
+                            message = "Aplikasi memerlukan akses lokasi presisi untuk dapat digunakan dalam kegiatan operasional. Silakan ketuk Izinkan pada jendela sistem yang muncul."
+                        )
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isBackgroundLocationGranted()) {
+                        pluginRequestPermissions(
+                            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                            REQUEST_BACKGROUND_LOCATION_PERMISSION
+                        )
+                    } else {
+                        dismissPermissionRequiredDialog()
+                        requestBatteryOptimizationAndStartService()
+                    }
+                } else {
+                    checkAndEnforce(saved)
+                }
             }
             REQUEST_BACKGROUND_LOCATION_PERMISSION -> {
                 emitLocationStatusChanged()
-                checkAndEnforce(saved)
+
+                if (isTermsAccepted()) {
+                    val bgGranted = isBackgroundLocationGranted()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !bgGranted) {
+                        showPermissionRequiredDialog(
+                            title = "Izin Lokasi Latar Belakang Diperlukan",
+                            message = "Aplikasi memerlukan izin lokasi sepanjang waktu agar pelacakan operasional tetap berjalan. Silakan ketuk Izinkan pada jendela sistem yang muncul."
+                        )
+                    } else {
+                        dismissPermissionRequiredDialog()
+                        requestBatteryOptimizationAndStartService()
+                    }
+                } else {
+                    checkAndEnforce(saved)
+                }
             }
             REQUEST_CAMERA_PERMISSION -> {
                 val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -1015,6 +1117,47 @@ class SwbPlugin : SwbPluginCompat() {
             return false
         }
         return true
+    }
+
+        fun isTermsAccepted(): Boolean {
+        val prefs = context.getSharedPreferences("swb_plugin_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean("swb_terms_accepted", false)
+    }
+
+    fun setTermsAccepted(value: Boolean) {
+        val prefs = context.getSharedPreferences("swb_plugin_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("swb_terms_accepted", value).apply()
+    }
+
+    @PluginMethod
+    fun isTermsAccepted(call: PluginCall) {
+        val ret = JSObject().apply {
+            put("accepted", isTermsAccepted())
+        }
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun setTermsAccepted(call: PluginCall) {
+        val accepted = call.getBoolean("accepted", true) ?: true
+        setTermsAccepted(accepted)
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun showOnboarding(call: PluginCall) {
+        activity?.runOnUiThread {
+            showTermsAndConditionsDialog()
+        }
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun showTermsAndConditionsDialog(call: PluginCall) {
+        activity?.runOnUiThread {
+            showTermsAndConditionsDialog()
+        }
+        call.resolve()
     }
 
     @PluginMethod
@@ -1144,11 +1287,13 @@ class SwbPlugin : SwbPluginCompat() {
                             REQUEST_LOCATION_PERMISSION
                         )
                     } else {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
+                        pluginRequestPermissions(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ),
+                            REQUEST_LOCATION_PERMISSION
+                        )
                     }
                 }
             )
@@ -1173,18 +1318,11 @@ class SwbPlugin : SwbPluginCompat() {
                 actionText = actionLabel ?: "Lanjutkan",
                 exitText = exitLabel,
                 onAction = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasRequestedBackgroundPermissionOnce) {
-                        hasRequestedBackgroundPermissionOnce = true
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         pluginRequestPermissions(
                             arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
                             REQUEST_BACKGROUND_LOCATION_PERMISSION
                         )
-                    } else {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
                     }
                 }
             )
@@ -1268,6 +1406,902 @@ class SwbPlugin : SwbPluginCompat() {
         val status = implementation.calculateStatus(enabled = true, granted = true, isMock = false, backgroundGranted = true)
         notifyListeners("locationStatusChanged", status)
         call?.resolve(status)
+    }
+
+    private fun onTermsAcceptedStartChain() {
+        val fineGranted = isLocationPermissionGranted()
+        val bgGranted = isBackgroundLocationGranted()
+
+        if (!fineGranted) {
+            pluginRequestPermissions(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                REQUEST_LOCATION_PERMISSION
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !bgGranted) {
+            pluginRequestPermissions(
+                arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                REQUEST_BACKGROUND_LOCATION_PERMISSION
+            )
+        } else {
+            requestBatteryOptimizationAndStartService()
+        }
+    }
+
+    private fun requestBatteryOptimizationAndStartService() {
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (powerManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:" + context.packageName)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                activity?.startActivity(intent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Permintaan pengabaian optimasi baterai gagal: " + e.message)
+        }
+
+        startBackgroundServiceDirectly()
+        isPermissionChainCompleted = true
+        dismissNativeGatingDialog()
+    }
+
+    private fun startBackgroundServiceDirectly() {
+        try {
+            val serviceIntent = Intent(context, SwbLocationService::class.java).apply {
+                action = SwbLocationService.ACTION_START_SERVICE
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Memulai layanan pelacakan latar belakang gagal: " + e.message)
+        }
+    }
+
+    private fun showPermissionRequiredDialog(title: String, message: String) {
+        val currentActivity = activity ?: return
+        if (currentActivity.isFinishing) return
+        currentActivity.runOnUiThread {
+            if (permissionRequiredDialog?.isShowing == true) return@runOnUiThread
+
+            val builder = AlertDialog.Builder(currentActivity)
+                .setTitle(title)
+                .setMessage(message)
+                .setCancelable(false)
+                .setPositiveButton("Izinkan") { _, _ ->
+                    permissionRequiredDialog = null
+                    onTermsAcceptedStartChain()
+                }
+                .setNegativeButton("Keluar") { _, _ ->
+                    try {
+                        bridge?.webView?.visibility = View.INVISIBLE
+                    } catch (_: Exception) {}
+                    currentActivity.moveTaskToBack(true)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        currentActivity.finishAndRemoveTask()
+                    } else {
+                        currentActivity.finish()
+                    }
+                    currentActivity.overridePendingTransition(0, 0)
+                    try {
+                        permissionRequiredDialog?.dismiss()
+                    } catch (_: Exception) {}
+                    permissionRequiredDialog = null
+                }
+
+            val d = builder.create()
+            d.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                    if (event.action == KeyEvent.ACTION_UP) {
+                        try {
+                            bridge?.webView?.visibility = View.INVISIBLE
+                        } catch (_: Exception) {}
+                        currentActivity.moveTaskToBack(true)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            currentActivity.finishAndRemoveTask()
+                        } else {
+                            currentActivity.finish()
+                        }
+                        currentActivity.overridePendingTransition(0, 0)
+                        try {
+                            d.dismiss()
+                        } catch (_: Exception) {}
+                        permissionRequiredDialog = null
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            permissionRequiredDialog = d
+            d.show()
+        }
+    }
+
+    private fun dismissPermissionRequiredDialog() {
+        activity?.runOnUiThread {
+            try {
+                permissionRequiredDialog?.dismiss()
+            } catch (_: Exception) {}
+            permissionRequiredDialog = null
+        }
+    }
+
+    @Synchronized
+    fun showTermsAndConditionsDialog() {
+        val currentActivity = activity ?: return
+        if (currentActivity.isFinishing) return
+
+        currentActivity.runOnUiThread {
+            if (termsDialog?.isShowing == true) return@runOnUiThread
+            if (isTermsAccepted()) return@runOnUiThread
+
+            // Set activity window background to Wahana Blue so webview never flashes underneath
+            try {
+                currentActivity.window.setBackgroundDrawable(ColorDrawable(Color.parseColor("#0B2568")))
+            } catch (_: Exception) {}
+
+            val displayMetrics = currentActivity.resources.displayMetrics
+            val density = displayMetrics.density
+            fun dp(value: Int): Int = (value * density + 0.5f).toInt()
+            fun dpF(value: Float): Float = value * density
+
+            val dialog = Dialog(currentActivity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setCancelable(false)
+            dialog.setCanceledOnTouchOutside(false)
+
+            dialog.window?.let { w ->
+                w.setBackgroundDrawable(ColorDrawable(Color.parseColor("#0B2568")))
+                w.setWindowAnimations(0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    w.statusBarColor = Color.parseColor("#0B2568")
+                    w.navigationBarColor = Color.parseColor("#0B2568")
+                }
+            }
+
+            fun setStatusBarTheme(isLight: Boolean) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    dialog.window?.let { w ->
+                        w.statusBarColor = Color.parseColor("#0B2568")
+                        w.navigationBarColor = Color.parseColor("#0B2568")
+                    }
+                }
+            }
+
+            val mainContainer = FrameLayout(currentActivity).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+
+            // ==========================================
+            // VIEW 1: ONBOARDING CAROUSEL (RESMI WAHANA)
+            // ==========================================
+            val layoutOnboarding = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor(Color.parseColor("#0B2568"))
+                setPadding(dp(20), dp(32), dp(20), dp(24))
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+
+            // Top Header: WAHANA Only (No Sahabat, No Subtitle)
+            val headerLayout = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(16)
+                }
+            }
+
+            val tvWahana = TextView(currentActivity).apply {
+                text = "WAHANA"
+                textSize = 32f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD_ITALIC)
+                setTextColor(Color.parseColor("#FFD200"))
+                gravity = Gravity.CENTER
+                letterSpacing = 0.08f
+            }
+            headerLayout.addView(tvWahana)
+            layoutOnboarding.addView(headerLayout)
+
+            // Center Card Container
+            val cardView = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1.0f
+                ).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(16))
+                }
+                layoutParams = lp
+                setPadding(dp(20), dp(20), dp(20), dp(20))
+
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Color.parseColor("#163A8C"), Color.parseColor("#0E2C75"))
+                ).apply {
+                    cornerRadius = dp(24).toFloat()
+                    setStroke(dp(1), Color.parseColor("#2652BD"))
+                }
+            }
+
+            // Illustration Container (Fixed height for perfect circle across all slides)
+            val illContainer = FrameLayout(currentActivity).apply {
+                val w = dp(290)
+                val h = dp(210)
+                val lp = LinearLayout.LayoutParams(w, h).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    bottomMargin = dp(16)
+                }
+                layoutParams = lp
+            }
+
+            // Decode hero image for slide 0
+            var heroBitmap: Bitmap? = null
+            try {
+                val dId = currentActivity.resources.getIdentifier("swb_onboarding_hero", "drawable", currentActivity.packageName)
+                if (dId != 0) {
+                    heroBitmap = BitmapFactory.decodeResource(currentActivity.resources, dId)
+                }
+            } catch (_: Exception) {}
+
+            // Unified Circular View for ALL Slides (100% Circular, perfectly aligned)
+            var currentSlide = 0
+            val illustrationView = object : View(currentActivity) {
+                private val skyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#EBF2FF")
+                    style = Paint.Style.FILL
+                }
+                private val navyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#0B2568")
+                    style = Paint.Style.FILL
+                }
+                private val yellowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#FFD200")
+                    style = Paint.Style.FILL
+                }
+                private val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    style = Paint.Style.FILL
+                }
+                private val blueStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#1E5CD4")
+                    style = Paint.Style.STROKE
+                    strokeWidth = dp(3).toFloat()
+                    strokeCap = Paint.Cap.ROUND
+                }
+                private val navyStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#0B2568")
+                    style = Paint.Style.STROKE
+                    strokeWidth = dp(3).toFloat()
+                    strokeCap = Paint.Cap.ROUND
+                }
+                private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#0B2568")
+                    style = Paint.Style.STROKE
+                    strokeWidth = dp(3).toFloat()
+                }
+                private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                private val path = Path()
+
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val w = width.toFloat()
+                    val h = height.toFloat()
+                    val cx = w / 2f
+                    val cy = h / 2f
+                    val r = Math.min(w, h) * 0.44f
+
+                    // 1. Base Circular Background
+                    canvas.drawCircle(cx, cy, r, skyPaint)
+
+                    // 2. Clipped Area (All contents strictly constrained inside the circle)
+                    path.reset()
+                    path.addCircle(cx, cy, r, Path.Direction.CW)
+                    canvas.save()
+                    canvas.clipPath(path)
+
+                    when (currentSlide) {
+                        0 -> {
+                            val bmp = heroBitmap
+                            if (bmp != null) {
+                                val srcRect = Rect(0, 0, bmp.width, bmp.height)
+                                val dstRect = RectF(cx - r, cy - r, cx + r, cy + r)
+                                canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
+                            }
+                        }
+                        1 -> {
+                            val arc1 = RectF(cx - r * 0.72f, cy - r * 0.72f, cx + r * 0.72f, cy + r * 0.72f)
+                            val arc2 = RectF(cx - r * 0.52f, cy - r * 0.52f, cx + r * 0.52f, cy + r * 0.52f)
+                            val arc3 = RectF(cx - r * 0.32f, cy - r * 0.32f, cx + r * 0.32f, cy + r * 0.32f)
+
+                            canvas.drawArc(arc1, 200f, 140f, false, blueStrokePaint)
+                            canvas.drawArc(arc2, 215f, 110f, false, navyStrokePaint)
+                            canvas.drawArc(arc3, 230f, 80f, false, blueStrokePaint)
+
+                            val pw = r * 0.45f
+                            val ph = r * 0.8f
+                            val phoneRect = RectF(cx - pw / 2f, cy - ph / 2f + dp(10), cx + pw / 2f, cy + ph / 2f + dp(10))
+                            canvas.drawRoundRect(phoneRect, dp(10).toFloat(), dp(10).toFloat(), navyPaint)
+                            canvas.drawRoundRect(phoneRect, dp(10).toFloat(), dp(10).toFloat(), navyStrokePaint)
+
+                            val screenRect = RectF(phoneRect.left + dp(4), phoneRect.top + dp(8), phoneRect.right - dp(4), phoneRect.bottom - dp(8))
+                            canvas.drawRoundRect(screenRect, dp(6).toFloat(), dp(6).toFloat(), whitePaint)
+
+                            canvas.drawCircle(cx, cy + dp(10), dp(16).toFloat(), skyPaint)
+                            canvas.drawCircle(cx, cy + dp(10), dp(8).toFloat(), yellowPaint)
+                        }
+                        2 -> {
+                            val sw = r * 0.65f
+                            val sh = r * 0.85f
+                            val topY = cy - sh / 2f
+                            path.reset()
+                            path.moveTo(cx, topY)
+                            path.lineTo(cx + sw / 2f, topY + dp(10))
+                            path.cubicTo(
+                                cx + sw / 2f, topY + sh * 0.6f,
+                                cx + sw * 0.35f, topY + sh * 0.88f,
+                                cx, topY + sh
+                            )
+                            path.cubicTo(
+                                cx - sw * 0.35f, topY + sh * 0.88f,
+                                cx - sw / 2f, topY + sh * 0.6f,
+                                cx - sw / 2f, topY + dp(10)
+                            )
+                            path.close()
+
+                            canvas.drawPath(path, navyPaint)
+                            canvas.drawPath(path, blueStrokePaint)
+
+                            path.reset()
+                            path.moveTo(cx - sw * 0.22f, topY + sh * 0.48f)
+                            path.lineTo(cx - sw * 0.05f, topY + sh * 0.64f)
+                            path.lineTo(cx + sw * 0.26f, topY + sh * 0.34f)
+                            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                color = Color.parseColor("#FFD200")
+                                style = Paint.Style.STROKE
+                                strokeWidth = dp(4).toFloat()
+                                strokeCap = Paint.Cap.ROUND
+                                strokeJoin = Paint.Join.ROUND
+                            })
+                        }
+                    }
+
+                    canvas.restore()
+
+                    // 3. Crisp Circular Border Ring (Identical on ALL slides)
+                    canvas.drawCircle(cx, cy, r, borderPaint)
+                }
+            }.apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            illContainer.addView(illustrationView)
+            cardView.addView(illContainer)
+
+            val tvTitle = TextView(currentActivity).apply {
+                textSize = 21f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setLineSpacing(dp(2).toFloat(), 1f)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(10)
+                }
+                layoutParams = lp
+            }
+            cardView.addView(tvTitle)
+
+            val tvMessage = TextView(currentActivity).apply {
+                textSize = 14f
+                typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                setTextColor(Color.parseColor("#D9E2F7"))
+                gravity = Gravity.CENTER
+                setLineSpacing(dp(3).toFloat(), 1.15f)
+            }
+            cardView.addView(tvMessage)
+            layoutOnboarding.addView(cardView)
+
+            // Bottom Navigation Bar
+            val bottomBar = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(dp(6), dp(4), dp(6), dp(6))
+                }
+            }
+
+            val dotsLayout = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+                layoutParams = lp
+            }
+
+            val dotViews = Array(3) { View(currentActivity) }
+            for (i in 0 until 3) {
+                val dot = dotViews[i]
+                val dotLp = LinearLayout.LayoutParams(dp(8), dp(8)).apply {
+                    rightMargin = dp(8)
+                }
+                dot.layoutParams = dotLp
+                dotsLayout.addView(dot)
+            }
+            bottomBar.addView(dotsLayout)
+
+            // Navigation Button (Precise Squircle 56dp x 56dp, radius 16dp with Vector Arrow)
+            val btnAction = FrameLayout(currentActivity).apply {
+                val size = dp(56)
+                layoutParams = LinearLayout.LayoutParams(size, size)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1E5CD4"))
+                    cornerRadius = dp(16).toFloat()
+                }
+                isClickable = true
+                isFocusable = true
+            }
+
+            val arrowIconView = object : View(currentActivity) {
+                private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    style = Paint.Style.STROKE
+                    strokeWidth = dpF(2.8f)
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                }
+                private val path = Path()
+
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val cx = width / 2f
+                    val cy = height / 2f
+                    val halfShaft = dp(10).toFloat()
+                    val headArm = dpF(6.5f)
+
+                    path.reset()
+                    path.moveTo(cx - halfShaft, cy)
+                    path.lineTo(cx + halfShaft, cy)
+                    path.moveTo(cx + halfShaft - headArm, cy - headArm)
+                    path.lineTo(cx + halfShaft, cy)
+                    path.lineTo(cx + halfShaft - headArm, cy + headArm)
+
+                    canvas.drawPath(path, arrowPaint)
+                }
+            }.apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            btnAction.addView(arrowIconView)
+
+            val btnPillText = TextView(currentActivity).apply {
+                text = "Lanjutkan"
+                textSize = 15.5f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                visibility = View.GONE
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                }
+            }
+            btnAction.addView(btnPillText)
+            bottomBar.addView(btnAction)
+            layoutOnboarding.addView(bottomBar)
+
+            val slideTitles = arrayOf(
+                "Pelacakan Lokasi Waktu Nyata",
+                "Layanan Latar Belakang",
+                "Efisiensi Daya & Keamanan"
+            )
+
+            val slideMessages = arrayOf(
+                "Aplikasi mencatat koordinat lokasi secara akurat saat bertugas untuk memastikan pembaruan status operasional secara langsung.",
+                "Layanan lokasi latar belakang memastikan pelacakan operasional tetap aktif dan berlanjut saat aplikasi diminimalkan.",
+                "Optimalisasi daya menjaga ketahanan baterai perangkat serta memastikan integritas dan keamanan seluruh data operasional."
+            )
+
+            // ==========================================
+            // VIEW 2: TERMS & CONDITIONS (SYARAT & KETENTUAN)
+            // ==========================================
+            val layoutTerms = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor(Color.WHITE)
+                visibility = View.GONE
+            }
+
+            // Top Bar with Official Wahana Blue
+            val topBar = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(56)
+                )
+                setBackgroundColor(Color.parseColor("#0B2568"))
+                setPadding(dp(12), 0, dp(12), 0)
+            }
+
+            val btnBack = object : View(currentActivity) {
+                private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    style = Paint.Style.STROKE
+                    strokeWidth = dp(2).toFloat()
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                }
+                private val path = Path()
+
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val w = width.toFloat()
+                    val h = height.toFloat()
+                    val cx = w / 2f
+                    val cy = h / 2f
+                    val arm = dp(8).toFloat()
+
+                    path.reset()
+                    path.moveTo(cx + arm * 0.4f, cy - arm)
+                    path.lineTo(cx - arm * 0.5f, cy)
+                    path.lineTo(cx + arm * 0.4f, cy + arm)
+                    canvas.drawPath(path, arrowPaint)
+                }
+            }.apply {
+                val size = dp(44)
+                layoutParams = LinearLayout.LayoutParams(size, size)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    layoutTerms.visibility = View.GONE
+                    layoutOnboarding.visibility = View.VISIBLE
+                    setStatusBarTheme(false)
+                }
+            }
+
+            val tvTopTitle = TextView(currentActivity).apply {
+                text = "Syarat & Ketentuan"
+                textSize = 17f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+                layoutParams = lp
+            }
+
+            val dummyRightSpace = View(currentActivity).apply {
+                val size = dp(44)
+                layoutParams = LinearLayout.LayoutParams(size, size)
+            }
+
+            topBar.addView(btnBack)
+            topBar.addView(tvTopTitle)
+            topBar.addView(dummyRightSpace)
+            layoutTerms.addView(topBar)
+
+            // Content Area (ScrollView)
+            val scrollTerms = ScrollView(currentActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1.0f
+                )
+                setPadding(dp(22), dp(16), dp(22), dp(16))
+                isFillViewport = true
+            }
+
+            val termsContentLayout = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            val tvSubTitle = TextView(currentActivity).apply {
+                text = "Syarat dan Ketentuan Operasional:"
+                textSize = 15f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F172A"))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(16)
+                }
+                layoutParams = lp
+            }
+            termsContentLayout.addView(tvSubTitle)
+
+            val tvItem1 = TextView(currentActivity).apply {
+                text = "1. Aplikasi memerlukan akses lokasi saat aplikasi digunakan serta di latar belakang selama jam operasional untuk memastikan akurasi dan pembaruan status pelacakan secara langsung."
+                textSize = 14f
+                setTextColor(Color.parseColor("#475569"))
+                setLineSpacing(dp(4).toFloat(), 1.2f)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(16)
+                }
+                layoutParams = lp
+            }
+            termsContentLayout.addView(tvItem1)
+
+            val tvItem2 = TextView(currentActivity).apply {
+                text = "2. Aplikasi memerlukan izin pengabaian optimasi baterai agar layanan pelacakan lokasi latar belakang tidak dihentikan paksa oleh sistem operasi perangkat saat menjalankan tugas operasional."
+                textSize = 14f
+                setTextColor(Color.parseColor("#475569"))
+                setLineSpacing(dp(4).toFloat(), 1.2f)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(16)
+                }
+                layoutParams = lp
+            }
+            termsContentLayout.addView(tvItem2)
+
+            val tvItem3 = TextView(currentActivity).apply {
+                text = "3. Seluruh data koordinat lokasi hanya digunakan untuk kepentingan pembaruan operasional resmi aplikasi dan dilindungi sesuai kebijakan privasi."
+                textSize = 14f
+                setTextColor(Color.parseColor("#475569"))
+                setLineSpacing(dp(4).toFloat(), 1.2f)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(16)
+                }
+                layoutParams = lp
+            }
+            termsContentLayout.addView(tvItem3)
+
+            val tvItem4 = TextView(currentActivity).apply {
+                text = "Penggunaan aplikasi ini mewajibkan kepatuhan terhadap seluruh ketentuan operasional di atas."
+                textSize = 14f
+                setTextColor(Color.parseColor("#475569"))
+                setLineSpacing(dp(4).toFloat(), 1.2f)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(24)
+                }
+                layoutParams = lp
+            }
+            termsContentLayout.addView(tvItem4)
+            scrollTerms.addView(termsContentLayout)
+            layoutTerms.addView(scrollTerms)
+
+            // Bottom Section (Checkbox + Button)
+            val bottomSection = LinearLayout(currentActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setPadding(dp(20), dp(12), dp(20), dp(20))
+                setBackgroundColor(Color.WHITE)
+            }
+
+            val cbConsent = CheckBox(currentActivity).apply {
+                text = "Saya telah membaca dan menyetujui seluruh syarat & ketentuan operasional."
+                textSize = 13.5f
+                setTextColor(Color.parseColor("#1E293B"))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(16)
+                }
+                layoutParams = lp
+            }
+
+            val wahanaBlue = Color.parseColor("#1E5CD4")
+            val disabledColor = Color.parseColor("#94A3B8")
+            val uncheckedColor = Color.parseColor("#64748B")
+            val colorStateList = ColorStateList(
+                arrayOf(
+                    intArrayOf(android.R.attr.state_checked),
+                    intArrayOf(-android.R.attr.state_checked)
+                ),
+                intArrayOf(wahanaBlue, uncheckedColor)
+            )
+            CompoundButtonCompat.setButtonTintList(cbConsent, colorStateList)
+            bottomSection.addView(cbConsent)
+
+            val btnNext = Button(currentActivity).apply {
+                text = "Lanjutkan"
+                textSize = 16f
+                isAllCaps = false
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                isEnabled = false
+                background = GradientDrawable().apply {
+                    setColor(disabledColor)
+                    cornerRadius = dp(26).toFloat()
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(52)
+                )
+                setOnClickListener {
+                    setTermsAccepted(true)
+                    try {
+                        dialog.dismiss()
+                    } catch (_: Exception) {}
+                    termsDialog = null
+
+                    onTermsAcceptedStartChain()
+                }
+            }
+
+            cbConsent.setOnCheckedChangeListener { _, isChecked ->
+                btnNext.isEnabled = isChecked
+                btnNext.background = GradientDrawable().apply {
+                    setColor(if (isChecked) wahanaBlue else disabledColor)
+                    cornerRadius = dp(26).toFloat()
+                }
+            }
+
+            bottomSection.addView(btnNext)
+            layoutTerms.addView(bottomSection)
+
+            // Function to update Onboarding slide
+            fun updateSlide(index: Int) {
+                currentSlide = index
+                illustrationView.invalidate()
+
+                tvTitle.text = slideTitles[index]
+                tvMessage.text = slideMessages[index]
+
+                for (i in 0 until 3) {
+                    val dot = dotViews[i]
+                    val lp = dot.layoutParams as LinearLayout.LayoutParams
+                    if (i == index) {
+                        lp.width = dp(24)
+                        lp.height = dp(8)
+                        dot.background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#FFD200"))
+                            cornerRadius = dp(4).toFloat()
+                        }
+                    } else {
+                        lp.width = dp(8)
+                        lp.height = dp(8)
+                        dot.background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#2652BD"))
+                            cornerRadius = dp(4).toFloat()
+                        }
+                    }
+                    dot.layoutParams = lp
+                }
+
+                if (index < 2) {
+                    val lp = btnAction.layoutParams as LinearLayout.LayoutParams
+                    lp.width = dp(56)
+                    lp.height = dp(56)
+                    btnAction.layoutParams = lp
+                    btnAction.background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#1E5CD4"))
+                        cornerRadius = dp(16).toFloat()
+                    }
+                    btnAction.setPadding(0, 0, 0, 0)
+                    arrowIconView.visibility = View.VISIBLE
+                    btnPillText.visibility = View.GONE
+                    btnAction.setOnClickListener {
+                        updateSlide(index + 1)
+                    }
+                } else {
+                    val lp = btnAction.layoutParams as LinearLayout.LayoutParams
+                    lp.width = LinearLayout.LayoutParams.WRAP_CONTENT
+                    lp.height = dp(52)
+                    btnAction.layoutParams = lp
+                    btnAction.background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#1E5CD4"))
+                        cornerRadius = dp(26).toFloat()
+                    }
+                    btnAction.setPadding(dp(26), dp(12), dp(26), dp(12))
+                    arrowIconView.visibility = View.GONE
+                    btnPillText.visibility = View.VISIBLE
+                    btnAction.setOnClickListener {
+                        layoutOnboarding.visibility = View.GONE
+                        layoutTerms.visibility = View.VISIBLE
+                        setStatusBarTheme(true)
+                    }
+                }
+            }
+
+            updateSlide(0)
+
+            mainContainer.addView(layoutOnboarding)
+            mainContainer.addView(layoutTerms)
+
+            // Function to exit app cleanly without any WebView flash or preview
+            fun exitAppCleanly() {
+                try {
+                    bridge?.webView?.visibility = View.INVISIBLE
+                } catch (_: Exception) {}
+
+                // Disable dialog window animations so it never fades out to show underlying views
+                dialog.window?.setWindowAnimations(0)
+
+                // Move entire task to back immediately (returns to Android home screen)
+                currentActivity.moveTaskToBack(true)
+
+                // Finish activity and remove task
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    currentActivity.finishAndRemoveTask()
+                } else {
+                    currentActivity.finish()
+                }
+
+                // Remove transition animation to eliminate any trailing frame
+                currentActivity.overridePendingTransition(0, 0)
+
+                try {
+                    dialog.dismiss()
+                } catch (_: Exception) {}
+                termsDialog = null
+            }
+
+            // Key listener to handle back navigation button without leaking WebView
+            dialog.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                    if (event.action == KeyEvent.ACTION_UP) {
+                        if (layoutTerms.visibility == View.VISIBLE) {
+                            layoutTerms.visibility = View.GONE
+                            layoutOnboarding.visibility = View.VISIBLE
+                            setStatusBarTheme(false)
+                        } else if (currentSlide > 0) {
+                            updateSlide(currentSlide - 1)
+                        } else {
+                            exitAppCleanly()
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
+            dialog.setContentView(mainContainer)
+            termsDialog = dialog
+            dialog.show()
+        }
     }
 
     private fun showMockGatingDialog(customMessage: String? = null) {
@@ -1571,11 +2605,13 @@ class SwbPlugin : SwbPluginCompat() {
                     itemDesc = if (fineGranted) "Izin lokasi presisi telah aktif" else "Memastikan koordinat titik akurat",
                     isGranted = fineGranted,
                     onClick = {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
+                        pluginRequestPermissions(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ),
+                            REQUEST_LOCATION_PERMISSION
+                        )
                     }
                 )
 
@@ -1585,11 +2621,12 @@ class SwbPlugin : SwbPluginCompat() {
                     itemDesc = if (bgGranted) "Izin latar belakang telah aktif" else "Pilih 'Izinkan sepanjang waktu' di pengaturan",
                     isGranted = bgGranted,
                     onClick = {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            pluginRequestPermissions(
+                                arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                                REQUEST_BACKGROUND_LOCATION_PERMISSION
+                            )
                         }
-                        context.startActivity(intent)
                     }
                 )
 

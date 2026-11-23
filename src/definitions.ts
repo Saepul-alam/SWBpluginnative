@@ -203,6 +203,14 @@ export interface SwbPlugin {
   areAllRequirementsMet(): Promise<{
     met: boolean;
   }>;
+  isTermsAccepted(): Promise<{
+    accepted: boolean;
+  }>;
+  setTermsAccepted(options?: {
+    accepted: boolean;
+  }): Promise<void>;
+  showTermsAndConditionsDialog(): Promise<void>;
+  showOnboarding(): Promise<void>;
 
   // Background + history + upload
   startBackgroundLocation(options: BackgroundLocationOptions): Promise<void>;

@@ -251,6 +251,30 @@ export class SwbPluginWeb extends WebPlugin implements SwbPlugin {
     };
   }
 
+  async isTermsAccepted(): Promise<{
+    accepted: boolean;
+  }> {
+    const accepted = localStorage.getItem('swb_terms_accepted') === 'true';
+    return {
+      accepted,
+    };
+  }
+
+  async setTermsAccepted(options?: {
+    accepted: boolean;
+  }): Promise<void> {
+    const val = options?.accepted ?? true;
+    localStorage.setItem('swb_terms_accepted', val ? 'true' : 'false');
+  }
+
+  async showTermsAndConditionsDialog(): Promise<void> {
+    // Web implementation placeholder
+  }
+
+  async showOnboarding(): Promise<void> {
+    // Web implementation placeholder
+  }
+
   async enforceLocation(
     options?: EnforceLocationOptions,
   ): Promise<LocationStatus> {
